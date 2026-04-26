@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "starter-pack-scanner"
+version = "0.1.0"
+description = "Scanner for repositories based on Canonical's Sphinx Starter Pack"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/canonical/starter-pack-scanner"
+Repository = "https://github.com/canonical/starter-pack-scanner"
+
+[project.scripts]
+starter-pack-scanner = "starter_pack_scanner.cli:main"
