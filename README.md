@@ -1,6 +1,6 @@
 # Starter Pack Scanner
 
-A CLI tool to scan Git repositories that use [Canonical's Sphinx Starter Pack](https://github.com/canonical/sphinx-docs-starter-pack) and run a modular set of checks against them.
+A CLI tool to scan Git repositories that use [Canonical's Sphinx Stack](https://github.com/canonical/sphinx-stack) (ex. Starter Pack) and run a modular set of checks against them.
 
 ## Requirements
 

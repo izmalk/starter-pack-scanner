@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from starter_pack_scanner.checks import ALL_CHECKS
+from starter_pack_scanner.checks import ALL_CHECKS, _BOLD, _GREEN, _RED, _RESET, _c, _use_color
 from starter_pack_scanner.scanner import scan
 
 
@@ -83,7 +83,12 @@ def main(argv: list[str] | None = None) -> None:
         else:
             failed += 1
 
-    print(f"\n{'='*50}")
-    print(f"Results: {passed} passed, {failed} failed, {passed + failed} total")
+    print(f"\n{_c('=' * 50, _BOLD)}")
+    passed_str = _c(str(passed), _GREEN, _BOLD)
+    failed_str = _c(str(failed), _RED, _BOLD) if failed else str(failed)
+    total_str = _c(str(passed + failed), _BOLD)
+    print(f"{_c('Results:', _BOLD)} {passed_str} passed, {failed_str} failed, {total_str} total")
+    if failed:
+        print(_c("Note: checks are heuristic — please verify any failures manually.", _BOLD))
 
     sys.exit(1 if failed > 0 else 0)

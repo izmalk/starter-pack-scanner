@@ -3,11 +3,39 @@
 from __future__ import annotations
 
 import abc
+import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
+
+
+# ---------------------------------------------------------------------------
+# Color helpers
+# ---------------------------------------------------------------------------
+
+
+def _use_color() -> bool:
+    return (
+        sys.stdout.isatty()
+        and os.environ.get("NO_COLOR") is None
+        and os.environ.get("TERM") != "dumb"
+    )
+
+
+_GREEN = "\033[32m"
+_RED = "\033[31m"
+_BOLD = "\033[1m"
+_RESET = "\033[0m"
+
+
+def _c(text: str, *codes: str) -> str:
+    """Wrap text in ANSI codes if the terminal supports color."""
+    if not _use_color():
+        return text
+    return "".join(codes) + text + _RESET
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +54,10 @@ class CheckResult:
     details: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
-        status = "PASS" if self.passed else "FAIL"
+        if self.passed:
+            status = _c("PASS", _GREEN, _BOLD)
+        else:
+            status = _c("FAIL", _RED, _BOLD)
         lines = [f"[{status}] {self.check_name}: {self.message}"]
         for detail in self.details:
             lines.append(f"       {detail}")
