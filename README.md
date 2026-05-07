@@ -14,13 +14,6 @@ cd starter-pack-scanner
 pip install -e .
 ```
 
-Or without installing:
-
-```bash
-pip install -r requirements.txt
-python -m starter_pack_scanner <repo-url>
-```
-
 ## Usage
 
 Scan a repository:
@@ -44,7 +37,7 @@ starter-pack-scanner --list-checks
 Run only specific checks:
 
 ```bash
-starter-pack-scanner https://github.com/canonical/kafka-operator --only docs-location version
+starter-pack-scanner https://github.com/canonical/kafka-operator --check docs-dir version
 ```
 
 Exclude specific checks:
@@ -57,8 +50,8 @@ starter-pack-scanner https://github.com/canonical/kafka-operator --exclude versi
 
 | ID | Description |
 |----|-------------|
-| `docs-location` | Checks whether the documentation is located in the standard `docs/` directory. |
-| `version` | Checks whether the starter pack version is the latest available (currently **1.6**). |
+| `docs-dir` | Checks whether the documentation is in the standard `docs/` directory of the repository. |
+| `version` | Checks whether the starter pack version is the latest available. |
 | `readme-docs-link` | Checks whether the repository README contains a link to the documentation. |
 | `readme-rtd-badge` | Checks whether the repository README contains a Read the Docs badge. |
 
@@ -80,28 +73,13 @@ starter-pack-scanner https://github.com/canonical/kafka-operator --exclude versi
 
 ## Adding a new check
 
-1. Create a new Python file in `starter_pack_scanner/checks/`, e.g. `my_check.py`.
-
-2. Define a class that inherits from `BaseCheck`:
+1. Define a class in `starter_pack_scanner/checks.py` that inherits from `BaseCheck`:
 
     ```python
-    from __future__ import annotations
-    from pathlib import Path
-    from starter_pack_scanner.checks.base import BaseCheck, CheckResult
-
-
     class MyCheck(BaseCheck):
-        @property
-        def id(self) -> str:
-            return "my-check"
-
-        @property
-        def name(self) -> str:
-            return "My Custom Check"
-
-        @property
-        def description(self) -> str:
-            return "Describe what this check verifies."
+        id = "my-check"
+        name = "My Custom Check"
+        description = "Describe what this check verifies."
 
         def run(self, repo_root: Path, docs_dir: Path | None) -> CheckResult:
             # repo_root: Path to the cloned repository root
@@ -118,19 +96,9 @@ starter-pack-scanner https://github.com/canonical/kafka-operator --exclude versi
             )
     ```
 
-3. Register it in `starter_pack_scanner/checks/__init__.py`:
-
-    ```python
-    from starter_pack_scanner.checks.my_check import MyCheck
-
-    ALL_CHECKS = [
-        DocsLocationCheck,
-        VersionCheck,
-        MyCheck,           # ← add here
-    ]
-    ```
+2. Add it to the `ALL_CHECKS` list at the bottom of `starter_pack_scanner/checks.py`.
 
 ## Removing or disabling a check
 
 - **At runtime**: use `--exclude <check-id>` to skip checks.
-- **Permanently**: remove the class from the `ALL_CHECKS` list in `checks/__init__.py`.
+- **Permanently**: remove the class from the `ALL_CHECKS` list in `checks.py`.

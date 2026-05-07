@@ -34,11 +34,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Check IDs to skip.",
     )
     parser.add_argument(
-        "--only",
+        "--check",
         nargs="*",
         default=None,
         metavar="CHECK_ID",
-        help="Run only the specified check IDs.",
+        help="Run only the specified checks (space-separated IDs).",
     )
     parser.add_argument(
         "--list-checks",
@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> None:
         repo_url=args.repo,
         branch=args.branch,
         exclude_checks=set(args.exclude),
-        include_checks=set(args.only) if args.only is not None else None,
+        include_checks=set(args.check) if args.check is not None else None,
     )
 
     passed = 0

@@ -7,8 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from starter_pack_scanner.checks import ALL_CHECKS
-from starter_pack_scanner.checks.base import BaseCheck, CheckResult
+from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult
 
 # Directories to search for starter-pack indicators, in priority order.
 _CANDIDATE_DIRS = ["docs", "."]
