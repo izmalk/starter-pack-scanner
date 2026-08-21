@@ -7,7 +7,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult
+from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult, DocsDomainCheck
+from starter_pack_scanner.site import SiteContext, build_site_context
 
 # Directories to search for starter-pack indicators, in priority order.
 _CANDIDATE_DIRS = ["docs", "."]
@@ -116,6 +117,10 @@ def scan(
     branch: str | None = None,
     exclude_checks: set[str] | None = None,
     include_checks: set[str] | None = None,
+    docs_url: str | None = None,
+    seed: int | None = None,
+    allow_domains: set[str] | None = None,
+    offline: bool = False,
 ) -> list[CheckResult]:
     """Clone a repo and run all enabled checks.
 
@@ -124,6 +129,12 @@ def scan(
         branch: Optional branch/tag to check out.
         exclude_checks: Set of check IDs to skip.
         include_checks: If set, only run checks whose IDs are in this set.
+        docs_url: Override for the published docs base URL (auto-detected
+            from conf.py otherwise).
+        seed: Seed for the random page sampling (reproducible runs).
+        allow_domains: Extra domains accepted by the docs-domain check.
+        offline: Skip all checks that require network access to the
+            published documentation site.
 
     Returns:
         A list of CheckResult objects.
@@ -136,14 +147,30 @@ def scan(
         clone_repo(repo_url, repo_root, branch)
         docs_dir = _find_docs_dir(repo_root)
 
-        results: list[CheckResult] = []
+        # Determine which checks will run, so the site context is only
+        # built (network access) when at least one site check is enabled.
+        enabled: list[type[BaseCheck]] = []
         for check_cls in ALL_CHECKS:
-            check: BaseCheck = check_cls()
+            check = check_cls()
             if check.id in exclude_checks:
                 continue
             if include_checks and check.id not in include_checks:
                 continue
-            results.append(check.run(repo_root, docs_dir))
+            if offline and getattr(check, "requires_site", False):
+                continue
+            enabled.append(check_cls)
+
+        site_ctx: SiteContext | None = None
+        if any(getattr(cls, "requires_site", False) for cls in enabled):
+            site_ctx = build_site_context(docs_dir, docs_url_override=docs_url, seed=seed)
+
+        results: list[CheckResult] = []
+        for check_cls in enabled:
+            if check_cls is DocsDomainCheck:
+                check: BaseCheck = check_cls(allow_domains)
+            else:
+                check = check_cls()
+            results.append(check.run(repo_root, docs_dir, site_ctx))
 
         return results
     finally:

@@ -46,6 +46,30 @@ Exclude specific checks:
 starter-pack-scanner https://github.com/canonical/kafka-operator --exclude version
 ```
 
+Skip all checks that need network access to the published docs site:
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --offline
+```
+
+Override the published docs URL (auto-detected from `conf.py` otherwise):
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --docs-url https://canonical.com/data/kafka/docs/4/
+```
+
+Make the random page sampling reproducible:
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --seed 42
+```
+
+Extend the list of major documentation domains:
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --allow-domain example.com
+```
+
 ## Available checks
 
 | ID | Description |
@@ -54,6 +78,19 @@ starter-pack-scanner https://github.com/canonical/kafka-operator --exclude versi
 | `version` | Checks whether the starter pack version is the latest available. |
 | `readme-docs-link` | Checks whether the repository README contains a link to the documentation. |
 | `readme-rtd-badge` | Checks whether the repository README contains a Read the Docs badge. |
+| `llms-txt` | Checks that the published documentation serves an `llms.txt` index for AI agents. |
+| `llms-txt-links` | Checks that a sample of links from `llms.txt` resolves to live pages. |
+| `llms-full-txt` | Checks that `llms.txt` links to `llms-full.txt` and that the link is not broken. |
+| `page-metadata` | Checks that sampled pages have a non-empty meta description. |
+| `docs-domain` | Checks that the documentation is published on a major company domain (e.g. `canonical.com`, `ubuntu.com`). |
+| `page-markdown` | Checks that sampled pages serve a Markdown version for AI (page URL + `index.html.md`). |
+| `page-agent-directive` | Checks that sampled pages contain a visually-hidden AI discovery directive (`llms.txt` pointer). |
+
+The last seven checks are live-site checks: they resolve the published docs URL
+from `conf.py` (`html_baseurl`, following redirects to the final URL), fetch
+`llms.txt`, and sample 3 pages (from `llms.txt`, falling back to `sitemap.xml`)
+shared by all checks. Use `--seed` for reproducible sampling and `--docs-url`
+to override URL detection.
 
 ## How it works
 
@@ -81,9 +118,20 @@ starter-pack-scanner https://github.com/canonical/kafka-operator --exclude versi
         name = "My Custom Check"
         description = "Describe what this check verifies."
 
-        def run(self, repo_root: Path, docs_dir: Path | None) -> CheckResult:
+        # Set to True if the check needs the published-site context
+        # (network access); the scanner then builds a SiteContext.
+        requires_site = False
+
+        def run(
+            self,
+            repo_root: Path,
+            docs_dir: Path | None,
+            site_ctx: SiteContext | None = None,
+        ) -> CheckResult:
             # repo_root: Path to the cloned repository root
             # docs_dir:  Path to the detected docs directory (or None)
+            # site_ctx:  Published-site context (or None); only populated
+            #            when requires_site is True
             if some_condition:
                 return CheckResult(
                     check_id=self.id, check_name=self.name,

@@ -11,6 +11,9 @@ from pathlib import Path
 
 import requests
 
+from starter_pack_scanner import http, site
+from starter_pack_scanner.site import SiteContext
+
 
 # ---------------------------------------------------------------------------
 # Color helpers
@@ -76,8 +79,14 @@ class BaseCheck(abc.ABC):
     name: str
     description: str
 
+    # Set to True on checks that need the published-site context; the
+    # scanner then builds a SiteContext (network access) before running.
+    requires_site: bool = False
+
     @abc.abstractmethod
-    def run(self, repo_root: Path, docs_dir: Path | None) -> CheckResult:
+    def run(
+        self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None
+    ) -> CheckResult:
         """Run the check against a cloned repository."""
 
 
@@ -108,7 +117,7 @@ class DocsLocationCheck(BaseCheck):
     name = "Docs Directory"
     description = "Checks whether the documentation is in the standard docs/ directory of the repository."
 
-    def run(self, repo_root: Path, docs_dir: Path | None) -> CheckResult:
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         if docs_dir is None:
             return CheckResult(
                 check_id=self.id,
@@ -162,7 +171,7 @@ class VersionCheck(BaseCheck):
                 return candidate
         return None
 
-    def run(self, repo_root: Path, docs_dir: Path | None) -> CheckResult:
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         if docs_dir is None:
             return CheckResult(
                 check_id=self.id,
@@ -227,7 +236,7 @@ class ReadmeDocsLinkCheck(BaseCheck):
         re.compile(r"https?://docs\.[^\s\)\"'>]+", re.IGNORECASE),
     ]
 
-    def run(self, repo_root: Path, docs_dir: Path | None) -> CheckResult:
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         readme = _find_readme(repo_root)
         if readme is None:
             return CheckResult(
@@ -285,7 +294,7 @@ class ReadmeRtdBadgeCheck(BaseCheck):
         re.compile(r"badge.*readthedocs|readthedocs.*badge", re.IGNORECASE),
     ]
 
-    def run(self, repo_root: Path, docs_dir: Path | None) -> CheckResult:
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         readme = _find_readme(repo_root)
         if readme is None:
             return CheckResult(
@@ -323,6 +332,368 @@ class ReadmeRtdBadgeCheck(BaseCheck):
 
 
 # ---------------------------------------------------------------------------
+# SEO / AIO checks (live-site)
+# ---------------------------------------------------------------------------
+
+
+def _site_unavailable_result(check: BaseCheck, site_ctx: SiteContext | None) -> CheckResult:
+    """Standard failure result when the published-site context is missing."""
+    if site_ctx is None or not site_ctx.available:
+        details = list(site_ctx.errors) if site_ctx else []
+        return CheckResult(
+            check_id=check.id,
+            check_name=check.name,
+            passed=False,
+            message="Could not resolve the published documentation URL; cannot run this check.",
+            details=details or ["Pass --docs-url to specify the published documentation base URL."],
+        )
+    raise AssertionError("site context is available")  # pragma: no cover
+
+
+def _no_pages_result(check: BaseCheck, site_ctx: SiteContext) -> CheckResult:
+    return CheckResult(
+        check_id=check.id,
+        check_name=check.name,
+        passed=False,
+        message="No documentation pages could be sampled (llms.txt and sitemap.xml unavailable or empty).",
+        details=site_ctx.errors,
+    )
+
+
+class LlmsTxtCheck(BaseCheck):
+    id = "llms-txt"
+    name = "llms.txt Available"
+    description = "Checks that the published documentation serves an llms.txt index for AI agents."
+    requires_site = True
+
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
+        if site_ctx is None or not site_ctx.available:
+            return _site_unavailable_result(self, site_ctx)
+
+        if site_ctx.llms_txt_text is None:
+            status = next(
+                (e for e in site_ctx.errors if "llms.txt" in e),
+                f"fetched from {site_ctx.llms_txt_url}",
+            )
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"llms.txt is not available at {site_ctx.llms_txt_url}.",
+                details=[status],
+            )
+
+        links = site.parse_llms_txt(site_ctx.llms_txt_text)
+        if not links:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"llms.txt at {site_ctx.llms_txt_url} contains no links.",
+            )
+
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=True,
+            message=f"llms.txt is available and lists {len(links)} link(s).",
+            details=[site_ctx.llms_txt_url],
+        )
+
+
+class LlmsTxtLinksCheck(BaseCheck):
+    id = "llms-txt-links"
+    name = "llms.txt Links"
+    description = "Checks that a sample of links from llms.txt resolves to live pages."
+    requires_site = True
+
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
+        if site_ctx is None or not site_ctx.available:
+            return _site_unavailable_result(self, site_ctx)
+        if not site_ctx.pages:
+            return _no_pages_result(self, site_ctx)
+
+        details: list[str] = []
+        broken = 0
+        for url in site_ctx.pages:
+            resp, error = http.get(url)
+            if resp is not None and resp.status_code < 400:
+                details.append(f"OK ({resp.status_code}): {url}")
+            else:
+                broken += 1
+                status = f"HTTP {resp.status_code}" if resp is not None else error
+                details.append(f"BROKEN ({status}): {url}")
+
+        if broken:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"{broken} of {len(site_ctx.pages)} sampled llms.txt links are broken.",
+                details=details,
+            )
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=True,
+            message=f"All {len(site_ctx.pages)} sampled llms.txt links resolve.",
+            details=details,
+        )
+
+
+class LlmsFullTxtCheck(BaseCheck):
+    id = "llms-full-txt"
+    name = "llms-full.txt Link"
+    description = "Checks that llms.txt links to llms-full.txt and that the link is not broken."
+    requires_site = True
+
+    _FULL_RE = re.compile(r"\[[^\]]*\]\((\S*llms-full\.txt)\)")
+
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
+        if site_ctx is None or not site_ctx.available:
+            return _site_unavailable_result(self, site_ctx)
+        if site_ctx.llms_txt_text is None:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message="llms.txt is not available; cannot check for an llms-full.txt link.",
+                details=site_ctx.errors,
+            )
+
+        match = self._FULL_RE.search(site_ctx.llms_txt_text)
+        if not match:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message="llms.txt does not contain a link to llms-full.txt.",
+                details=[site_ctx.llms_txt_url],
+            )
+
+        full_url = match.group(1)
+        resp, error = http.get(full_url)
+        if resp is None or resp.status_code >= 400:
+            status = f"HTTP {resp.status_code}" if resp is not None else error
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"The llms-full.txt link in llms.txt is broken ({status}).",
+                details=[full_url],
+            )
+        if not resp.text.strip():
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message="llms-full.txt is reachable but empty.",
+                details=[full_url],
+            )
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=True,
+            message="llms.txt links to llms-full.txt and the link resolves.",
+            details=[full_url],
+        )
+
+
+class PageMetadataCheck(BaseCheck):
+    id = "page-metadata"
+    name = "Page Metadata"
+    description = "Checks that sampled pages have a non-empty meta description."
+    requires_site = True
+
+    _META_DESC_RE = re.compile(
+        r"<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']*)[\"']", re.IGNORECASE
+    )
+    _META_DESC_RE2 = re.compile(
+        r"<meta[^>]+content=[\"']([^\"']*)[\"'][^>]+name=[\"']description[\"']", re.IGNORECASE
+    )
+
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
+        if site_ctx is None or not site_ctx.available:
+            return _site_unavailable_result(self, site_ctx)
+        if not site_ctx.pages:
+            return _no_pages_result(self, site_ctx)
+
+        details: list[str] = []
+        missing = 0
+        for url in site_ctx.pages:
+            page_url = site.to_page_url(url)
+            resp, error = http.get(page_url)
+            if resp is None or resp.status_code >= 400:
+                missing += 1
+                status = f"HTTP {resp.status_code}" if resp is not None else error
+                details.append(f"UNREACHABLE ({status}): {page_url}")
+                continue
+            match = self._META_DESC_RE.search(resp.text) or self._META_DESC_RE2.search(resp.text)
+            if match and match.group(1).strip():
+                details.append(f"OK: {page_url}")
+            else:
+                missing += 1
+                details.append(f"MISSING meta description: {page_url}")
+
+        if missing:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"{missing} of {len(site_ctx.pages)} sampled pages lack a meta description.",
+                details=details,
+            )
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=True,
+            message=f"All {len(site_ctx.pages)} sampled pages have a meta description.",
+            details=details,
+        )
+
+
+class DocsDomainCheck(BaseCheck):
+    id = "docs-domain"
+    name = "Major Documentation Domain"
+    description = "Checks that the documentation is published on a major company domain (e.g. canonical.com, ubuntu.com)."
+    requires_site = True
+
+    def __init__(self, extra_domains: set[str] | None = None):
+        self.extra_domains = extra_domains or set()
+
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
+        if site_ctx is None or not site_ctx.available:
+            return _site_unavailable_result(self, site_ctx)
+
+        if site.is_major_domain(site_ctx.base_url, self.extra_domains):
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=True,
+                message=f"Documentation is published on a major domain: {site_ctx.base_url}",
+            )
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=False,
+            message=f"Documentation is not published on a major company domain: {site_ctx.base_url}",
+            details=[
+                "Major domains: " + ", ".join(sorted(site.MAJOR_DOMAINS | self.extra_domains)),
+                "Extend the list with --allow-domain.",
+            ],
+        )
+
+
+class PageMarkdownCheck(BaseCheck):
+    id = "page-markdown"
+    name = "Markdown for AI"
+    description = "Checks that sampled pages serve a Markdown version for AI (page URL + index.html.md)."
+    requires_site = True
+
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
+        if site_ctx is None or not site_ctx.available:
+            return _site_unavailable_result(self, site_ctx)
+        if not site_ctx.pages:
+            return _no_pages_result(self, site_ctx)
+
+        details: list[str] = []
+        missing = 0
+        for url in site_ctx.pages:
+            md_url = site.to_markdown_url(site.to_page_url(url))
+            resp, error = http.get(md_url)
+            if resp is None or resp.status_code >= 400:
+                missing += 1
+                status = f"HTTP {resp.status_code}" if resp is not None else error
+                details.append(f"NO MARKDOWN ({status}): {md_url}")
+                continue
+            body = resp.text.lstrip().lower()
+            if body.startswith("<!doctype") or body.startswith("<html"):
+                missing += 1
+                details.append(f"NOT MARKDOWN (HTML served): {md_url}")
+            else:
+                details.append(f"OK: {md_url}")
+
+        if missing:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"{missing} of {len(site_ctx.pages)} sampled pages have no Markdown version.",
+                details=details,
+            )
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=True,
+            message=f"All {len(site_ctx.pages)} sampled pages serve a Markdown version.",
+            details=details,
+        )
+
+
+class PageAgentDirectiveCheck(BaseCheck):
+    id = "page-agent-directive"
+    name = "Hidden AI Directive"
+    description = "Checks that sampled pages contain a visually-hidden AI discovery directive (llms.txt pointer)."
+    requires_site = True
+
+    # Explicit markers used by the Canonical AIO setup.
+    _MARKERS = ("data-agent-directive", "u-hide-agent-directive")
+    # Generic visually-hidden CSS signals.
+    _HIDDEN_SIGNALS = (
+        "clip-path: inset(50%)",
+        "clip: rect(0 0 0 0)",
+        "sr-only",
+        "visually-hidden",
+        "screen-reader",
+    )
+
+    def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
+        if site_ctx is None or not site_ctx.available:
+            return _site_unavailable_result(self, site_ctx)
+        if not site_ctx.pages:
+            return _no_pages_result(self, site_ctx)
+
+        details: list[str] = []
+        missing = 0
+        for url in site_ctx.pages:
+            page_url = site.to_page_url(url)
+            resp, error = http.get(page_url)
+            if resp is None or resp.status_code >= 400:
+                missing += 1
+                status = f"HTTP {resp.status_code}" if resp is not None else error
+                details.append(f"UNREACHABLE ({status}): {page_url}")
+                continue
+            html_text = resp.text
+            signal = next((m for m in self._MARKERS if m in html_text), None)
+            if signal is None:
+                # Fallback: an element mentioning llms.txt that also carries a
+                # visually-hidden CSS signal nearby.
+                if "llms.txt" in html_text and any(s in html_text for s in self._HIDDEN_SIGNALS):
+                    signal = "llms.txt reference + visually-hidden CSS"
+            if signal:
+                details.append(f"OK ({signal}): {page_url}")
+            else:
+                missing += 1
+                details.append(f"NO AI DIRECTIVE: {page_url}")
+
+        if missing:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"{missing} of {len(site_ctx.pages)} sampled pages lack a hidden AI directive.",
+                details=details,
+            )
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=True,
+            message=f"All {len(site_ctx.pages)} sampled pages contain a hidden AI directive.",
+            details=details,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -331,4 +702,11 @@ ALL_CHECKS = [
     VersionCheck,
     ReadmeDocsLinkCheck,
     ReadmeRtdBadgeCheck,
+    LlmsTxtCheck,
+    LlmsTxtLinksCheck,
+    LlmsFullTxtCheck,
+    PageMetadataCheck,
+    DocsDomainCheck,
+    PageMarkdownCheck,
+    PageAgentDirectiveCheck,
 ]

@@ -41,6 +41,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run only the specified checks (space-separated IDs).",
     )
     parser.add_argument(
+        "--docs-url",
+        default=None,
+        metavar="URL",
+        help="Published documentation base URL (auto-detected from conf.py otherwise).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Seed for the random page sampling, for reproducible runs.",
+    )
+    parser.add_argument(
+        "--allow-domain",
+        action="append",
+        default=[],
+        dest="allow_domains",
+        metavar="DOMAIN",
+        help="Extra domain accepted by the docs-domain check (repeatable).",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Skip all checks that require network access to the published docs site.",
+    )
+    parser.add_argument(
         "--list-checks",
         action="store_true",
         help="List all available checks and exit.",
@@ -65,6 +91,10 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Scanning {args.repo} ...")
     if args.branch:
         print(f"  Branch: {args.branch}")
+    if args.docs_url:
+        print(f"  Docs URL override: {args.docs_url}")
+    if args.seed is not None:
+        print(f"  Sampling seed: {args.seed}")
     print()
 
     results = scan(
@@ -72,6 +102,10 @@ def main(argv: list[str] | None = None) -> None:
         branch=args.branch,
         exclude_checks=set(args.exclude),
         include_checks=set(args.check) if args.check is not None else None,
+        docs_url=args.docs_url,
+        seed=args.seed,
+        allow_domains=set(args.allow_domains),
+        offline=args.offline,
     )
 
     passed = 0
