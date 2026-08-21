@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from starter_pack_scanner import cache
 from starter_pack_scanner.checks import ALL_CHECKS, _BOLD, _GREEN, _RED, _RESET, _c, _use_color
 from starter_pack_scanner.scanner import scan
 
@@ -67,6 +68,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip all checks that require network access to the published docs site.",
     )
     parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Bypass the scan cache and always run a fresh scan.",
+    )
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Delete all cached scan reports and exit.",
+    )
+    parser.add_argument(
         "--list-checks",
         action="store_true",
         help="List all available checks and exit.",
@@ -78,6 +89,11 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.clear_cache:
+        removed = cache.clear()
+        print(f"Removed {removed} cached report(s) from {cache.cache_dir()}")
+        sys.exit(0)
+
     if args.list_checks:
         print("Available checks:\n")
         for cls in ALL_CHECKS:
@@ -88,29 +104,54 @@ def main(argv: list[str] | None = None) -> None:
     if not args.repo:
         parser.error("the following argument is required: repo")
 
-    print(f"Scanning {args.repo} ...")
-    if args.branch:
-        print(f"  Branch: {args.branch}")
-    if args.docs_url:
-        print(f"  Docs URL override: {args.docs_url}")
-    if args.seed is not None:
-        print(f"  Sampling seed: {args.seed}")
-    print()
-
-    results = scan(
+    key = cache.cache_key(
         repo_url=args.repo,
         branch=args.branch,
-        exclude_checks=set(args.exclude),
-        include_checks=set(args.check) if args.check is not None else None,
         docs_url=args.docs_url,
-        seed=args.seed,
-        allow_domains=set(args.allow_domains),
+        include_checks=set(args.check) if args.check is not None else None,
+        exclude_checks=set(args.exclude),
         offline=args.offline,
+        seed=args.seed,
     )
+
+    report = None
+    if not args.no_cache:
+        report = cache.get(key)
+
+    if report is not None:
+        print(f"Using cached report for {args.repo} (use --no-cache to re-scan)")
+    else:
+        print(f"Scanning {args.repo} ...")
+        if args.branch:
+            print(f"  Branch: {args.branch}")
+        if args.docs_url:
+            print(f"  Docs URL override: {args.docs_url}")
+        if args.seed is not None:
+            print(f"  Sampling seed: {args.seed}")
+        print()
+
+        report = scan(
+            repo_url=args.repo,
+            branch=args.branch,
+            exclude_checks=set(args.exclude),
+            include_checks=set(args.check) if args.check is not None else None,
+            docs_url=args.docs_url,
+            seed=args.seed,
+            allow_domains=set(args.allow_domains),
+            offline=args.offline,
+        )
+        cache.put(key, report)
+
+    if report.error:
+        print(_c(f"Error: {report.error}", _RED, _BOLD))
+        sys.exit(2)
+
+    timestamp = report.scanned_at.strftime("%Y-%m-%d %H:%M:%S %Z") or report.scanned_at.isoformat()
+    print(f"Report generated at {timestamp}\n")
 
     passed = 0
     failed = 0
-    for r in results:
+    for r in report.results:
         print(r)
         if r.passed:
             passed += 1

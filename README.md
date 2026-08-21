@@ -6,12 +6,31 @@ A CLI tool to scan Git repositories that use [Canonical's Sphinx Stack](https://
 
 - Python 3.10+
 - Git (available on `PATH`)
+- For the web GUI only: install with the `web` extra (see below)
 
 ## Installation
 
 ```bash
 cd starter-pack-scanner
 pip install -e .
+```
+
+Or with the web GUI extras:
+
+```bash
+pip install -e ".[web]"
+```
+
+A `Makefile` is provided for common tasks (`make help` lists them all):
+
+```bash
+make install      # create .venv and install the CLI
+make install-web  # create .venv and install CLI + web GUI
+make run REPO=https://github.com/canonical/kafka-operator  # run the scanner
+make serve-web    # start the web GUI at http://127.0.0.1:8765
+make test         # run the test suite (offline, no network needed)
+make lint         # compile-check all sources
+make clean        # remove build artifacts (keeps .venv)
 ```
 
 ## Usage
@@ -70,6 +89,109 @@ Extend the list of major documentation domains:
 starter-pack-scanner https://github.com/canonical/kafka-operator --allow-domain example.com
 ```
 
+### Caching
+
+Scan reports are cached on disk (one JSON file per scan configuration under
+`~/.cache/starter-pack-scanner/`, honouring `XDG_CACHE_HOME`). Repeated scans
+of the same repository are served from the cache instantly. Every report
+shows the timestamp it was generated at.
+
+- `--no-cache` — bypass the cache and run a fresh scan (the result replaces
+  the cached entry).
+- `--clear-cache` — delete all cached reports and exit.
+
+There is no automatic expiry: refresh a report explicitly with `--no-cache`
+or the "Re-scan" button in the web GUI.
+
+## Web GUI
+
+A minimal local web interface (FastAPI + Jinja2 + HTMX) for running scans
+from the browser: enter a repository URL, optionally the published docs URL
+and a branch, and get a rendered report of all checks.
+
+### Start and stop
+
+```bash
+# Install with the web extra (once):
+pip install -e ".[web]"
+
+# Start (binds to 127.0.0.1:8765 — local only):
+starter-pack-scanner-web
+
+# Stop: press Ctrl+C in the terminal running it.
+```
+
+Or with make: `make serve-web`.
+
+Then open <http://127.0.0.1:8765>. Alternatively run
+`python -m starter_pack_scanner.web.app`.
+
+The GUI shares the on-disk cache with the CLI: a scan started from the
+browser is visible to the CLI and vice versa. The report shows its
+generation timestamp and a "cached" badge when served from the cache;
+the "Re-scan (bypass cache)" button forces a fresh scan.
+
+### Security notes
+
+The web GUI has **no authentication** and is intended for local use only:
+
+- The server binds to `127.0.0.1` only — it is not reachable from the
+  network. Do not expose it via port forwarding or reverse proxies.
+- Repository URLs are validated before cloning: only `https://` is accepted
+  (`http://` for localhost), embedded credentials are rejected, and hostnames
+  resolving to private/loopback/link-local addresses are refused (basic SSRF
+  protection).
+- `git clone` runs with a 120-second timeout, and at most two scans run
+  concurrently.
+
+### Maintenance notes
+
+- The GUI renders whatever checks are in `ALL_CHECKS` — adding a new check
+  (see below) requires no web changes.
+- Styling is built on [Vanilla Framework](https://vanillaframework.io/)
+  (Canonical's design system), hotlinked from `assets.ubuntu.com`: Ubuntu
+  fonts, `--vf-color-*` custom properties, and the `is-dark` class for dark
+  mode. Custom styles in `starter_pack_scanner/web/static/style.css` only
+  reference Vanilla's variables — to bump the version, change the `<link>`
+  tag in `templates/index.html`.
+- HTMX is loaded from a CDN (`unpkg.com`); to use the GUI fully offline,
+  vendor `htmx.min.js` into `starter_pack_scanner/web/static/` and update the
+  `<script>` tag in `templates/index.html`.
+- Templates live in `starter_pack_scanner/web/templates/`, styles in
+  `web/static/style.css`, and the theme toggle in `web/static/theme.js`
+  (tri-state: auto / light / dark, persisted in `localStorage`).
+
+## Testing
+
+The test suite is fully offline — it never clones from GitHub or touches the
+network, so it is safe to run from any CI infrastructure without rate-limit
+concerns:
+
+- Repositories are local `git init` fixtures created in a temp directory.
+- All HTTP traffic (live-site checks) goes through a stubbed `http.get`.
+- The web GUI is tested with FastAPI's `TestClient`.
+
+```bash
+make test          # or: python -m pytest tests/ -v
+```
+
+Requires `pytest` and `httpx` (`pip install pytest httpx`).
+
+## Third-party assets and licenses
+
+The web GUI uses the following third-party assets:
+
+| Asset | Usage | License |
+|-------|-------|---------|
+| [Vanilla Framework](https://vanillaframework.io/) (Canonical) | CSS hotlinked from `assets.ubuntu.com` (typography, colors, Ubuntu fonts) | LGPL-3.0 |
+| [Lucide](https://lucide.dev) icons (`monitor`, `sun`, `moon`) | Inlined SVGs in `web/templates/index.html` (theme toggle) | ISC |
+| [HTMX](https://htmx.org) | JavaScript hotlinked from `unpkg.com` | 0BSD |
+
+The Lucide SVGs are embedded copies, so their copyright notice is kept in the
+template comment next to the icons (ISC requires the notice accompany
+copies). The hotlinked assets (Vanilla Framework, HTMX, Ubuntu fonts) are not
+redistributed by this project.
+
 ## Available checks
 
 | ID | Description |
@@ -107,6 +229,7 @@ to override URL detection.
 
 - `0` — All checks passed.
 - `1` — One or more checks failed.
+- `2` — The scan could not run (invalid URL, failed clone, missing git).
 
 ## Adding a new check
 

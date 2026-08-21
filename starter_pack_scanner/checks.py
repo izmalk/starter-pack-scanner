@@ -56,6 +56,26 @@ class CheckResult:
     message: str
     details: list[str] = field(default_factory=list)
 
+    def to_dict(self) -> dict:
+        """Plain-dict form, JSON-serialisable (used by the cache and web UI)."""
+        return {
+            "check_id": self.check_id,
+            "check_name": self.check_name,
+            "passed": self.passed,
+            "message": self.message,
+            "details": list(self.details),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CheckResult:
+        return cls(
+            check_id=data["check_id"],
+            check_name=data["check_name"],
+            passed=data["passed"],
+            message=data["message"],
+            details=list(data.get("details", [])),
+        )
+
     def __str__(self) -> str:
         if self.passed:
             status = _c("PASS", _GREEN, _BOLD)

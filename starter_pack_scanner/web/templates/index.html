@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Starter Pack Scanner</title>
+  <!-- Vanilla Framework (Canonical): typography, colors, base components -->
+  <link rel="stylesheet" href="https://assets.ubuntu.com/v1/vanilla_framework_version_4.57.0.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:,">
+  <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" defer></script>
+  <script src="/static/theme.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <h1 class="brand">Starter Pack Scanner</h1>
+      <button id="theme-toggle" class="theme-toggle" type="button"
+              title="Switch theme (auto / light / dark)" aria-label="Switch theme">
+        <!-- Theme icons from Lucide (https://lucide.dev):
+             ISC License — Copyright (c) for portions of Lucide are held by
+             Cole Bemis 2013-2022 as part of Feather (MIT). All other
+             copyright (c) for Lucide are held by Lucide Contributors 2022. -->
+        <span class="theme-icon" data-icon="auto">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <rect width="20" height="14" x="2" y="3" rx="2"/>
+            <line x1="8" x2="16" y1="21" y2="21"/>
+            <line x1="12" x2="12" y1="17" y2="21"/>
+          </svg>
+        </span>
+        <span class="theme-icon" data-icon="light">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2"/><path d="M12 20v2"/>
+            <path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
+            <path d="M2 12h2"/><path d="M20 12h2"/>
+            <path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+          </svg>
+        </span>
+        <span class="theme-icon" data-icon="dark">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+          </svg>
+        </span>
+        <span class="theme-label" data-label>Auto</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card form-card" aria-label="Scan form">
+      <form hx-post="/scan" hx-target="#results" hx-swap="innerHTML" hx-indicator="#scan-spinner">
+        <div class="field">
+          <label for="repo-url">Repository URL <span class="required" title="Required">*</span></label>
+          <input type="url" id="repo-url" name="repo_url" required autofocus
+                 placeholder="https://github.com/canonical/kafka-operator"
+                 autocomplete="url" spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="docs-url">Published docs URL <span class="optional">optional</span></label>
+          <input type="url" id="docs-url" name="docs_url"
+                 placeholder="Auto-detected from conf.py if left empty"
+                 autocomplete="off" spellcheck="false">
+        </div>
+
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <div class="field">
+            <label for="branch">Branch <span class="optional">optional</span></label>
+            <input type="text" id="branch" name="branch"
+                   placeholder="Default branch if left empty"
+                   autocomplete="off" spellcheck="false">
+          </div>
+        </details>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Scan</button>
+          <span id="scan-spinner" class="spinner htmx-indicator" role="status" aria-label="Scanning"></span>
+          <span class="spinner-text htmx-indicator">Scanning…</span>
+        </div>
+      </form>
+    </section>
+
+    <section id="results" aria-live="polite" aria-label="Scan results"></section>
+  </main>
+
+  <footer class="footer">
+    <p>Checks are heuristic — please verify any failures manually.</p>
+  </footer>
+</body>
+</html>

@@ -68,13 +68,14 @@ def _conf_value(conf_text: str, key: str) -> str | None:
     Handles plain strings and f-strings with only literal parts; returns None
     for values containing interpolations or non-literal expressions.
     """
+    # f-string with interpolations — unusable verbatim
+    if re.search(rf"^\s*{re.escape(key)}\s*=\s*[rf]*f", conf_text, re.MULTILINE):
+        if "{" in conf_text.split(f"{key}", 1)[-1].split("\n", 1)[0]:
+            return None
     pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*[rf]*(['\"])(.*?)\1\s*$", re.MULTILINE)
     match = pattern.search(conf_text)
     if match:
         return match.group(2)
-    # f-string with interpolations — unusable verbatim
-    if re.search(rf"^\s*{re.escape(key)}\s*=\s*f", conf_text, re.MULTILINE):
-        return None
     return None
 
 

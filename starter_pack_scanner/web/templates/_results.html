@@ -1,0 +1,67 @@
+{# Results partial, returned by POST /scan and swapped into #results. #}
+{% if error %}
+<section class="card error-card" role="alert">
+  <h2>Scan failed</h2>
+  <p>{{ error }}</p>
+</section>
+{% elif report %}
+
+{% if report.error %}
+<section class="card error-card" role="alert">
+  <h2>Scan failed</h2>
+  <p>{{ report.error }}</p>
+</section>
+{% else %}
+<section class="card report-card">
+  <header class="report-header">
+    <div class="report-title">
+      <h2>Scan report</h2>
+      <p class="repo-link">
+        {{ report.repo_url }}
+        {% if report.branch %} <span class="badge badge-branch">{{ report.branch }}</span>{% endif %}
+      </p>
+      {% if report.docs_url %}<p class="muted">Docs: {{ report.docs_url }}</p>{% endif %}
+    </div>
+    <div class="report-meta">
+      <p class="timestamp" title="{{ report.scanned_at.isoformat() }}">
+        {{ report.scanned_at.strftime("%Y-%m-%d %H:%M UTC") }}
+      </p>
+      {% if cached %}<span class="badge badge-cached">cached</span>{% endif %}
+    </div>
+  </header>
+
+  <div class="summary">
+    <span class="count count-pass">{{ report.passed }} passed</span>
+    <span class="count count-fail">{{ report.failed }} failed</span>
+    <span class="count count-total">{{ report.results | length }} total</span>
+  </div>
+
+  <ul class="checks">
+    {% for r in report.results %}
+    <li class="check {{ "check-pass" if r.passed else "check-fail" }}">
+      <div class="check-head">
+        <span class="check-status" aria-hidden="true">{{ "✓" if r.passed else "✗" }}</span>
+        <span class="check-name">{{ r.check_name }}</span>
+        <span class="check-id">{{ r.check_id }}</span>
+      </div>
+      <p class="check-message">{{ r.message }}</p>
+      {% if r.details %}
+      <ul class="check-details">
+        {% for d in r.details %}<li>{{ d }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+
+  <footer class="report-footer">
+    <button type="button" class="btn btn-secondary"
+            hx-post="/scan" hx-target="#results" hx-swap="innerHTML"
+            hx-indicator="#scan-spinner"
+            hx-vals='{"repo_url": "{{ report.repo_url }}", "docs_url": "{{ report.docs_url or "" }}", "branch": "{{ report.branch or "" }}", "refresh": "true"}'>
+      Re-scan (bypass cache)
+    </button>
+  </footer>
+</section>
+{% endif %}
+{% endif %}

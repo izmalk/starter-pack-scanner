@@ -20,9 +20,18 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
+
 [project.urls]
 Homepage = "https://github.com/canonical/starter-pack-scanner"
 Repository = "https://github.com/canonical/starter-pack-scanner"
 
 [project.scripts]
 starter-pack-scanner = "starter_pack_scanner.cli:main"
+starter-pack-scanner-web = "starter_pack_scanner.web.app:main"

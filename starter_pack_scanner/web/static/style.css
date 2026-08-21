@@ -1,0 +1,366 @@
+/* Starter Pack Scanner — custom styles on top of Vanilla Framework.
+   Vanilla (loaded in index.html) provides the Ubuntu font stack, base
+   typography and the --vf-color-* custom properties used here.
+
+   Theming: the `is-dark` class on <html> switches Vanilla's color
+   variables to dark values. theme.js toggles it:
+   - "auto"  → class follows prefers-color-scheme
+   - "light" / "dark" → class forced off/on
+*/
+
+/* ---------- Layout ---------- */
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--vf-color-background-alt);
+  color: var(--vf-color-text-default);
+}
+
+.topbar {
+  background: var(--vf-color-background-default);
+  border-bottom: 1px solid var(--vf-color-border-default);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar-inner {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.brand {
+  font-size: 1.15rem;
+  font-weight: 550;
+  margin: 0;
+}
+
+.container {
+  max-width: 46rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+  flex: 1;
+}
+
+.footer {
+  border-top: 1px solid var(--vf-color-border-default);
+  color: var(--vf-color-text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+.footer p { margin: 0; }
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--vf-color-background-default);
+  border: 1.5px solid var(--vf-color-border-default);
+  border-radius: 0.125rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ---------- Theme toggle ---------- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--vf-color-background-default);
+  color: var(--vf-color-text-default);
+  border: 1px solid var(--vf-color-border-high-contrast);
+  border-radius: 6.25rem;
+  padding: 0.3rem 0.8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.theme-toggle:hover { background: var(--vf-color-background-hover); }
+.theme-toggle:focus-visible { outline: 3px solid var(--vf-color-focus); outline-offset: 1px; }
+
+/* Only the icon matching the current mode is shown; theme.js sets
+   data-theme on <html>, which drives these rules. */
+.theme-icon { display: none; line-height: 0; }
+:root[data-theme="light"] .theme-icon[data-icon="light"],
+:root[data-theme="dark"] .theme-icon[data-icon="dark"],
+:root:not([data-theme="light"]):not([data-theme="dark"]) .theme-icon[data-icon="auto"] { display: inline-flex; }
+
+/* ---------- Form ---------- */
+.field { margin-bottom: 1.1rem; }
+
+.field label {
+  display: block;
+  font-weight: 550;
+  font-size: 0.875rem;
+  margin-bottom: 0.35rem;
+}
+
+.required { color: var(--vf-color-border-negative); }
+.optional {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--vf-color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: 0.3rem;
+}
+
+.field input {
+  width: 100%;
+  font: inherit;
+  color: var(--vf-color-text-default);
+  background: var(--vf-color-background-inputs);
+  border: 1px solid var(--vf-color-border-high-contrast);
+  border-bottom-width: 2px; /* Vanilla-style underlined inputs */
+  border-radius: 0.125rem;
+  padding: 0.55rem 0.75rem;
+  transition: border-color 0.15s ease;
+}
+
+.field input::placeholder { color: var(--vf-color-text-muted); opacity: 0.8; }
+
+.field input:focus {
+  outline: none;
+  border-color: var(--vf-color-focus);
+}
+
+/* Collapsed "Advanced" section (branch field) */
+.advanced { margin-bottom: 1.1rem; }
+
+.advanced summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--vf-color-link-default);
+  user-select: none;
+  padding: 0.25rem 0;
+}
+
+.advanced summary:hover { color: var(--vf-color-link-visited); }
+.advanced .field { margin: 0.75rem 0 0; }
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+/* ---------- Buttons (Vanilla colors) ---------- */
+.btn {
+  font: inherit;
+  font-weight: 550;
+  border: 1px solid transparent;
+  border-radius: 0.125rem;
+  padding: 0.5rem 1.4rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn:focus-visible { outline: 3px solid var(--vf-color-focus); outline-offset: 1px; }
+
+.btn-primary {
+  background: var(--vf-color-button-positive-default);
+  color: #fff;
+}
+
+.btn-primary:hover { background: var(--vf-color-button-positive-hover); }
+
+.btn-secondary {
+  background: var(--vf-color-background-default);
+  color: var(--vf-color-text-default);
+  border-color: var(--vf-color-border-high-contrast);
+}
+
+.btn-secondary:hover { background: var(--vf-color-background-hover); }
+
+/* ---------- Spinner (htmx indicator) ---------- */
+.spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid var(--vf-color-border-default);
+  border-top-color: var(--vf-color-link-default);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner-text { color: var(--vf-color-text-muted); font-size: 0.9rem; }
+
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: inline-flex; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Error card ---------- */
+.error-card { border-color: var(--vf-color-border-negative); }
+
+.error-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  color: var(--vf-color-border-negative);
+}
+
+.error-card p { margin: 0; }
+
+/* ---------- Report ---------- */
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.report-title h2 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+
+.repo-link {
+  margin: 0;
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.muted { color: var(--vf-color-text-muted); font-size: 0.85rem; margin: 0.25rem 0 0; }
+
+.report-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.timestamp {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--vf-color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 550;
+  border-radius: 6.25rem;
+  padding: 0.15rem 0.6rem;
+  vertical-align: middle;
+}
+
+.badge-branch {
+  background: var(--vf-color-background-code);
+  color: var(--vf-color-text-muted);
+}
+
+.badge-cached {
+  background: var(--vf-color-background-caution-default);
+  border: 1px solid var(--vf-color-border-caution);
+  color: var(--vf-color-text-default);
+}
+
+/* Summary counts */
+.summary {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.count {
+  font-weight: 550;
+  font-size: 0.9rem;
+  border-radius: 6.25rem;
+  padding: 0.3rem 0.9rem;
+}
+
+.count-pass {
+  background: var(--vf-color-background-positive-default);
+  border: 1px solid var(--vf-color-border-positive);
+  color: var(--vf-color-text-default);
+}
+
+.count-fail {
+  background: var(--vf-color-background-negative-default);
+  border: 1px solid var(--vf-color-border-negative);
+  color: var(--vf-color-text-default);
+}
+
+.count-total {
+  background: var(--vf-color-background-code);
+  color: var(--vf-color-text-muted);
+}
+
+/* Check list */
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.check {
+  border: 1px solid var(--vf-color-border-default);
+  border-left-width: 4px;
+  border-radius: 0.125rem;
+  padding: 0.85rem 1rem;
+  background: var(--vf-color-background-default);
+}
+
+.check-pass { border-left-color: var(--vf-color-border-positive); }
+.check-fail { border-left-color: var(--vf-color-border-negative); }
+
+.check-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.check-status { font-weight: 700; }
+.check-pass .check-status { color: var(--vf-color-border-positive); }
+.check-fail .check-status { color: var(--vf-color-border-negative); }
+
+.check-name { font-weight: 550; }
+
+.check-id {
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+  font-size: 0.75rem;
+  color: var(--vf-color-text-muted);
+  margin-left: auto;
+}
+
+.check-message { margin: 0.35rem 0 0; font-size: 0.92rem; }
+
+.check-details {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--vf-color-text-muted);
+  font-size: 0.82rem;
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+  word-break: break-all;
+}
+
+.check-details li { margin-bottom: 0.15rem; }
+
+.report-footer {
+  margin-top: 1.25rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 480px) {
+  .card { padding: 1.1rem; }
+  .report-header { flex-direction: column; }
+  .check-id { margin-left: 0; }
+}

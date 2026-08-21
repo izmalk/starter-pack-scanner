@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import ipaddress
 import shutil
+import socket
 import subprocess
 import tempfile
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult, DocsDomainCheck
 from starter_pack_scanner.site import SiteContext, build_site_context
+
+# Hard cap on a single git clone, so a hanging remote cannot wedge a scan.
+_CLONE_TIMEOUT = 120  # seconds
 
 # Directories to search for starter-pack indicators, in priority order.
 _CANDIDATE_DIRS = ["docs", "."]
@@ -20,6 +28,128 @@ _SPHINX_MARKERS = ["conf.py"]
 
 # Repo-root file that hints at RTD-based docs even when docs dir is elsewhere.
 _RTD_CONFIG = ".readthedocs.yaml"
+
+
+# ---------------------------------------------------------------------------
+# Scan report
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ScanReport:
+    """Complete outcome of one scan, ready for display or caching.
+
+    ``error`` is set (and ``results`` empty) when the scan could not run at
+    all — e.g. an invalid repository URL or a failed clone. Individual check
+    failures are *not* errors: they are recorded as failed CheckResults.
+    """
+
+    repo_url: str
+    branch: str | None = None
+    docs_url: str | None = None
+    scanned_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    docs_dir: str | None = None
+    results: list[CheckResult] = field(default_factory=list)
+    error: str | None = None
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for r in self.results if r.passed)
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for r in self.results if not r.passed)
+
+    def to_dict(self) -> dict:
+        """Plain-dict form, JSON-serialisable (used by the cache and web UI)."""
+        return {
+            "repo_url": self.repo_url,
+            "branch": self.branch,
+            "docs_url": self.docs_url,
+            "scanned_at": self.scanned_at.isoformat(),
+            "docs_dir": self.docs_dir,
+            "results": [r.to_dict() for r in self.results],
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ScanReport:
+        return cls(
+            repo_url=data["repo_url"],
+            branch=data.get("branch"),
+            docs_url=data.get("docs_url"),
+            scanned_at=datetime.fromisoformat(data["scanned_at"]),
+            docs_dir=data.get("docs_dir"),
+            results=[CheckResult.from_dict(r) for r in data.get("results", [])],
+            error=data.get("error"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# URL validation (basic SSRF guard for the web UI)
+# ---------------------------------------------------------------------------
+
+
+def _is_local_host(hostname: str) -> bool:
+    """True for hostnames that refer to the local machine."""
+    return hostname in {"localhost", "localhost.localdomain"} or (
+        hostname.endswith(".localhost") if hostname.count(".") else False
+    )
+
+
+def _resolve_all_ips(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve *hostname* to all its IP addresses (may be empty on failure)."""
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return []
+    return [ipaddress.ip_address(info[4][0]) for info in infos]
+
+
+def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """False for loopback, private, link-local and other special-purpose IPs."""
+    return not (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def validate_repo_url(url: str) -> str | None:
+    """Validate a user-supplied repository URL.
+
+    Returns an error message for unsafe/invalid URLs, or None if the URL is
+    acceptable. Rules:
+
+    - Scheme must be https (http is allowed for localhost only).
+    - No embedded credentials (``user:pass@host``).
+    - The hostname must not resolve to a private/loopback/link-local address
+      (basic SSRF protection for the web UI).
+    """
+    parsed = urlparse(url)
+
+    if parsed.scheme not in {"https", "http"}:
+        return f"Unsupported URL scheme {parsed.scheme!r} — use an https:// repository URL."
+    if not parsed.hostname:
+        return "The URL does not contain a hostname."
+    if parsed.username or parsed.password:
+        return "URLs with embedded credentials are not allowed."
+
+    if parsed.scheme == "http" and not _is_local_host(parsed.hostname):
+        return "http:// URLs are only allowed for localhost."
+
+    if not _is_local_host(parsed.hostname):
+        for ip in _resolve_all_ips(parsed.hostname):
+            if not _is_safe_ip(ip):
+                return (
+                    f"The hostname {parsed.hostname!r} resolves to a private or "
+                    "reserved address, which is not allowed."
+                )
+
+    return None
 
 
 def _is_starter_pack_dir(path: Path) -> bool:
@@ -109,7 +239,7 @@ def clone_repo(repo_url: str, dest: Path, branch: str | None = None) -> None:
     if branch:
         cmd += ["--branch", branch]
     cmd += ["--", repo_url, str(dest)]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=_CLONE_TIMEOUT)
 
 
 def scan(
@@ -121,7 +251,7 @@ def scan(
     seed: int | None = None,
     allow_domains: set[str] | None = None,
     offline: bool = False,
-) -> list[CheckResult]:
+) -> ScanReport:
     """Clone a repo and run all enabled checks.
 
     Args:
@@ -137,15 +267,37 @@ def scan(
             published documentation site.
 
     Returns:
-        A list of CheckResult objects.
+        A ScanReport. If the repository could not be cloned, ``report.error``
+        is set and ``results`` is empty; scan errors never raise.
     """
+    report = ScanReport(repo_url=repo_url, branch=branch, docs_url=docs_url)
+
+    url_error = validate_repo_url(repo_url)
+    if url_error:
+        report.error = url_error
+        return report
+
     exclude_checks = exclude_checks or set()
     tmp_dir = tempfile.mkdtemp(prefix="sp-scanner-")
     repo_root = Path(tmp_dir) / "repo"
 
     try:
-        clone_repo(repo_url, repo_root, branch)
+        try:
+            clone_repo(repo_url, repo_root, branch)
+        except subprocess.TimeoutExpired:
+            report.error = f"git clone timed out after {_CLONE_TIMEOUT} seconds."
+            return report
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            hint = f": {stderr.splitlines()[-1]}" if stderr else ""
+            report.error = f"git clone failed{hint}"
+            return report
+        except FileNotFoundError:
+            report.error = "git executable not found — is git installed and on PATH?"
+            return report
+
         docs_dir = _find_docs_dir(repo_root)
+        report.docs_dir = str(docs_dir.relative_to(repo_root)) if docs_dir else None
 
         # Determine which checks will run, so the site context is only
         # built (network access) when at least one site check is enabled.
@@ -172,6 +324,7 @@ def scan(
                 check = check_cls()
             results.append(check.run(repo_root, docs_dir, site_ctx))
 
-        return results
+        report.results = results
+        return report
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
