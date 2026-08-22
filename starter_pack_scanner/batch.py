@@ -24,10 +24,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import yaml
 
-from starter_pack_scanner.scanner import ScanReport, scan
+from starter_pack_scanner.scanner import ProgressFn, ScanReport, scan
 
 
 class BatchFileError(Exception):
@@ -223,13 +224,27 @@ def run_batch(
     entries: list[BatchEntry],
     use_cache: bool = True,
     refresh: bool = False,
+    progress: ProgressFn | None = None,
 ) -> list[tuple[BatchEntry, ScanReport]]:
-    """Run the scanner for every entry. Returns (entry, report) pairs."""
+    """Run the scanner for every entry. Returns (entry, report) pairs.
+
+    ``progress`` (optional) is called with (percent, step) as the batch
+    advances; per-repo scan milestones are scaled into the repo's slice.
+    """
     from starter_pack_scanner import cache
     from starter_pack_scanner.checks import checks_by_group
 
     results: list[tuple[BatchEntry, ScanReport]] = []
-    for entry in entries:
+    total = len(entries)
+    for index, entry in enumerate(entries):
+        repo_start = 100 * index // total
+        repo_end = 100 * (index + 1) // total
+        repo_span = repo_end - repo_start
+
+        def scaled(pct: int, step: str, _s: int = repo_start, _span: int = repo_span, _e: str = entry.short_name) -> None:
+            if progress is not None:
+                progress(_s + _span * pct // 100, f"[{_e}] {step}")
+
         # Fold the check group into the cache key via its include set, so
         # group-filtered scans don't collide with full scans (same pattern
         # as cli.py and web/app.py).
@@ -259,7 +274,12 @@ def run_batch(
                 check_group=entry.check_group,
                 offline=entry.offline,
                 old_url=entry.old_url,
+                progress=scaled,
             )
             cache.put(key, report)
+        else:
+            scaled(100, "served from cache")
         results.append((entry, report))
+    if progress is not None:
+        progress(100, "Batch scan complete")
     return results

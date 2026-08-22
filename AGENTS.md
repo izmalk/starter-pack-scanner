@@ -79,6 +79,11 @@ Makefile                 # install / run / serve-web / test / lint / clean
 `scan()` never raises for scan failures — it returns a `ScanReport` with
 `error` set. Individual check failures are `CheckResult(passed=False)`.
 
+`scan()` and `run_batch()` take an optional `progress: Callable[[int, str],
+None]` callback (percent, step) fired at milestones (clone, docs-dir
+detection, site resolution, each check). The web GUI's progress modal is
+driven by it; CLI/API callers ignore it.
+
 ### Caching
 
 - One JSON file per scan configuration in `~/.cache/starter-pack-scanner/`

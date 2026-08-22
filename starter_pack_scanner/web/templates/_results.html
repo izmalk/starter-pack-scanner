@@ -1,4 +1,4 @@
-{# Results partial, returned by POST /scan and swapped into #results. #}
+{# Results partial, returned by POST /scan and swapped into #results-single. #}
 {% if error %}
 <section class="card error-card" role="alert">
   <h2>Scan failed</h2>
@@ -63,7 +63,7 @@
 
   <footer class="report-footer">
     <button type="button" class="btn btn-secondary"
-            hx-post="/scan" hx-target="#results" hx-swap="innerHTML"
+            hx-post="/scan" hx-target="#results-single" hx-swap="innerHTML"
             hx-indicator="#scan-spinner"
             hx-vals='{"repo_url": "{{ report.repo_url }}", "docs_url": "{{ report.docs_url or "" }}", "branch": "{{ report.branch or "" }}", "refresh": "true"}'>
       Re-scan (bypass cache)

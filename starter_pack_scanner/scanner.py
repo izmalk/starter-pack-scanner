@@ -10,6 +10,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlparse
 
 from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult, DocsDomainCheck
@@ -243,6 +244,11 @@ def clone_repo(repo_url: str, dest: Path, branch: str | None = None) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=_CLONE_TIMEOUT)
 
 
+# Optional progress reporter: called with (percent, step description).
+# Used by the web GUI's progress modal; None everywhere else.
+ProgressFn = Callable[[int, str], None]
+
+
 def scan(
     repo_url: str,
     branch: str | None = None,
@@ -254,6 +260,7 @@ def scan(
     offline: bool = False,
     check_group: str | None = None,
     old_url: str | None = None,
+    progress: ProgressFn | None = None,
 ) -> ScanReport:
     """Clone a repo and run all enabled checks.
 
@@ -272,12 +279,20 @@ def scan(
         old_url: Pre-migration documentation URL, used by
             migration-old-url-redirect (auto-derived from conf.py git
             history when not given).
+        progress: Optional callback invoked with (percent, step) as the
+            scan advances; used by the web GUI progress modal.
 
     Returns:
         A ScanReport. If the repository could not be cloned, ``report.error``
         is set and ``results`` is empty; scan errors never raise.
     """
     report = ScanReport(repo_url=repo_url, branch=branch, docs_url=docs_url)
+
+    def _report(percent: int, step: str) -> None:
+        if progress is not None:
+            progress(percent, step)
+
+    _report(2, "Validating repository URL…")
 
     url_error = validate_repo_url(repo_url)
     if url_error:
@@ -289,6 +304,7 @@ def scan(
     repo_root = Path(tmp_dir) / "repo"
 
     try:
+        _report(5, f"Cloning {repo_url}…")
         try:
             clone_repo(repo_url, repo_root, branch)
         except subprocess.TimeoutExpired:
@@ -305,6 +321,7 @@ def scan(
 
         docs_dir = _find_docs_dir(repo_root)
         report.docs_dir = str(docs_dir.relative_to(repo_root)) if docs_dir else None
+        _report(20, "Detecting documentation directory…" if docs_dir else "No docs directory found")
 
         # Determine which checks will run, so the site context is only
         # built (network access) when at least one site check is enabled.
@@ -323,19 +340,24 @@ def scan(
 
         site_ctx: SiteContext | None = None
         if any(getattr(cls, "requires_site", False) for cls in enabled):
+            _report(30, "Resolving published docs URL…")
             site_ctx = build_site_context(docs_dir, docs_url_override=docs_url, seed=seed)
+            _report(40, f"Sampled {len(site_ctx.pages)} page(s) for live-site checks")
 
         results: list[CheckResult] = []
-        for check_cls in enabled:
+        total = len(enabled)
+        for i, check_cls in enumerate(enabled, 1):
             if check_cls is DocsDomainCheck:
                 check: BaseCheck = check_cls(allow_domains)
             elif check_cls is OldUrlRedirectCheck:
                 check = check_cls(old_url)
             else:
                 check = check_cls()
+            _report(40 + int(55 * (i - 1) / max(total, 1)), f"Running check {i}/{total}: {check.name}")
             results.append(check.execute(repo_root, docs_dir, site_ctx))
 
         report.results = results
+        _report(100, "Scan complete")
         return report
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

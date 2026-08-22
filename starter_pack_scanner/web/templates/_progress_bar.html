@@ -1,0 +1,13 @@
+{# Progress bar partial — swapped into #progress-poll by each /progress poll.
+   While running it re-triggers polling (hx-swap on the parent keeps the
+   every-400ms trigger alive); when the job is done the endpoint returns
+   #progress-done instead and this partial is no longer served. #}
+<div class="progress-track" role="progressbar"
+     aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ percent }}"
+     aria-label="Scan progress">
+  <div class="progress-fill" style="width: {{ percent }}%"></div>
+</div>
+<div class="progress-readout">
+  <span class="progress-percent">{{ percent }}%</span>
+  <span class="progress-step">{{ step }}</span>
+</div>

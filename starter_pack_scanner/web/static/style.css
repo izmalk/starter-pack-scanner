@@ -558,3 +558,340 @@ body {
   .report-header { flex-direction: column; }
   .check-id { margin-left: 0; }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Retro (90s/00s) scan progress modal                                        */
+/* ------------------------------------------------------------------------- */
+
+.progress-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: modal-fade-in 0.15s ease-out;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.progress-modal {
+  width: min(420px, calc(100vw - 2rem));
+}
+
+/* --- fake OS window ---------------------------------------------------- */
+
+.retro-window {
+  border: 2px solid #c0c0c0;
+  border-radius: 4px;
+  background: #c0c0c0;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.retro-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: linear-gradient(90deg, #3d3d3d, #5e5e5e);
+  color: #fff;
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.retro-title {
+  margin-left: 6px;
+  flex: 1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Linux/GNOME-style window buttons: small squares on the RIGHT, like
+   Ubuntu's Yaru theme — minimise (dash), maximise (square), close (x).
+   Drawn with CSS so no icon font is needed. */
+.retro-btn {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+  flex: none;
+}
+
+/* minimise: a horizontal dash */
+.retro-btn-min::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  height: 2px;
+  background: #fff;
+}
+
+/* maximise: a hollow square */
+.retro-btn-max::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 2px solid #fff;
+}
+
+/* close: an x, drawn with two crossing bars */
+.retro-btn-close {
+  background: #a02c2c;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.retro-btn-close::before,
+.retro-btn-close::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 2px;
+  background: #fff;
+}
+
+.retro-btn-close::before { transform: translate(-50%, -50%) rotate(45deg); }
+.retro-btn-close::after  { transform: translate(-50%, -50%) rotate(-45deg); }
+
+/* --- CRT screen --------------------------------------------------------- */
+
+.retro-screen {
+  position: relative;
+  margin: 8px;
+  padding: 12px;
+  background: #0a0f0a;
+  border: 2px solid #808080;
+  border-radius: 2px;
+  overflow: hidden;
+  text-align: center;
+}
+
+/* (The old ASCII-art monitor was replaced by the .retro-page browser mock.) */
+
+/* --- the "web page" being scanned -------------------------------------- */
+
+/* A tiny browser window: chrome row (nav buttons + URL bar) over a body
+   of text lines. Rendered in the CRT green-on-dark palette. */
+.retro-page {
+  display: inline-block;
+  width: 82%;
+  max-width: 300px;
+  border: 1px solid #33ff66;
+  background: rgba(51, 255, 102, 0.05);
+  text-align: left;
+}
+
+.retro-page-chrome {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-bottom: 1px solid #33ff66;
+  background: rgba(51, 255, 102, 0.12);
+}
+
+.retro-page-btn {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid #33ff66;
+  flex: none;
+}
+
+.retro-page-url {
+  flex: 1;
+  height: 9px;
+  border: 1px solid #33ff66;
+  border-radius: 1px;
+  background: rgba(51, 255, 102, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+/* A little "text" inside the URL bar, sliding like a URL being typed. */
+.retro-page-url::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  bottom: 2px;
+  width: 40%;
+  background: rgba(51, 255, 102, 0.55);
+  animation: retro-url-type 3s ease-in-out infinite;
+}
+
+@keyframes retro-url-type {
+  0%   { width: 12%; }
+  60%  { width: 55%; }
+  100% { width: 12%; }
+}
+
+.retro-page-body {
+  padding: 8px 10px 10px;
+}
+
+/* Lines of "text" on the page. The title is a wider, brighter block; the
+ * gap lines create paragraph separation; short lines end paragraphs. */
+.retro-line {
+  height: 4px;
+  margin-bottom: 5px;
+  border-radius: 1px;
+  background: rgba(51, 255, 102, 0.45);
+  /* Lines materialise one after another, like the page loading. */
+  animation: retro-line-in 2.8s ease-out infinite;
+}
+
+.retro-line-title {
+  height: 7px;
+  width: 65%;
+  margin-bottom: 8px;
+  background: rgba(51, 255, 102, 0.85);
+}
+
+.retro-line-short { width: 55%; }
+.retro-line-gap { margin-bottom: 10px; }
+
+/* Stagger the materialise animation so lines appear top-to-bottom. */
+.retro-page-body .retro-line:nth-child(1)  { animation-delay: 0s; }
+.retro-page-body .retro-line:nth-child(2)  { animation-delay: 0.15s; }
+.retro-page-body .retro-line:nth-child(3)  { animation-delay: 0.3s; }
+.retro-page-body .retro-line:nth-child(4)  { animation-delay: 0.45s; }
+.retro-page-body .retro-line:nth-child(5)  { animation-delay: 0.6s; }
+.retro-page-body .retro-line:nth-child(6)  { animation-delay: 0.75s; }
+.retro-page-body .retro-line:nth-child(7)  { animation-delay: 0.9s; }
+.retro-page-body .retro-line:nth-child(8)  { animation-delay: 1.05s; }
+.retro-page-body .retro-line:nth-child(9)  { animation-delay: 1.2s; }
+.retro-page-body .retro-line:nth-child(10) { animation-delay: 1.35s; }
+.retro-page-body .retro-line:nth-child(11) { animation-delay: 1.5s; }
+
+@keyframes retro-line-in {
+  0%   { opacity: 0; transform: scaleX(0.3); }
+  12%  { opacity: 1; transform: scaleX(1); }
+  85%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes retro-blink {
+  50% { opacity: 0; }
+}
+
+.retro-blink { animation: retro-blink 1s steps(1) infinite; }
+
+/* The moving scanline — the classic CRT sweep. */
+.retro-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(51, 255, 102, 0.5), transparent);
+  animation: retro-sweep 2.2s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes retro-sweep {
+  0% { top: 0; }
+  100% { top: 100%; }
+}
+
+/* Subtle whole-screen flicker for the CRT feel. */
+.retro-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(51, 255, 102, 0.03);
+  animation: retro-flicker 0.12s steps(2) infinite;
+  pointer-events: none;
+}
+
+@keyframes retro-flicker {
+  50% { opacity: 0.6; }
+}
+
+.retro-statusline {
+  margin-top: 8px;
+  color: #33ff66;
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 4px rgba(51, 255, 102, 0.6);
+}
+
+/* --- progress bar + readout --------------------------------------------- */
+
+.progress-track {
+  height: 18px;
+  margin: 10px 8px 6px;
+  border: 2px solid #808080;
+  background: #e8e8e8;
+  position: relative;
+  overflow: hidden;
+  /* Chunky segmented look: repeating stripes over the unfilled track. */
+  background-image: repeating-linear-gradient(
+    90deg,
+    #e8e8e8 0 8px,
+    #d4d4d4 8px 10px
+  );
+}
+
+.progress-fill {
+  height: 100%;
+  /* Solid green base (a vertical shade gradient via two stacked colors is
+     not possible together with the segment stripes in one background-image,
+     so use a flat color + stripes). */
+  background-color: #3cb43c;
+  /* Segments on the fill, so it reads as classic chunky blocks. */
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.25) 0 8px,
+    transparent 8px 10px
+  );
+  transition: width 0.3s ease;
+}
+
+.progress-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 8px 10px;
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+}
+
+.progress-percent {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #000080;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.2em;
+}
+
+.progress-step {
+  font-size: 0.78rem;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* Respect users who prefer no animation. */
+@media (prefers-reduced-motion: reduce) {
+  .retro-scanline,
+  .retro-blink,
+  .retro-screen::after,
+  .retro-line,
+  .retro-page-url::after { animation: none; }
+  .progress-fill { transition: none; }
+}

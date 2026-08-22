@@ -166,6 +166,131 @@ class TestBatchEndpoint:
         assert "batch-tab-count" in resp.text
 
 
+class TestProgressModal:
+    """HTMX requests get the async job flow: modal shell → polls → results."""
+
+    def _wait_for_done(self, client, job_id, tries: int = 100):
+        import time
+
+        for _ in range(tries):
+            resp = client.get(f"/progress/{job_id}")
+            if 'id="progress-done"' in resp.text:
+                return resp
+            time.sleep(0.05)
+        raise AssertionError("job never finished")
+
+    def _job_id_from(self, text: str) -> str:
+        import re
+
+        m = re.search(r"/progress/([0-9a-f]+)", text)
+        assert m, "no job id in modal response"
+        return m.group(1)
+
+    def test_htmx_scan_returns_modal_then_results(self, client, monkeypatch, tmp_path, local_repo):
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        import starter_pack_scanner.web.app as web_app
+
+        monkeypatch.setattr(web_app, "validate_repo_url", lambda u: None)
+        resp = client.post(
+            "/scan",
+            data={"repo_url": local_repo},
+            headers={"HX-Request": "true"},
+        )
+        assert resp.status_code == 200
+        # The modal shell with the retro window and the polling div.
+        assert 'id="progress-modal"' in resp.text
+        assert "retro-screen" in resp.text
+        assert 'id="progress-poll"' in resp.text
+        assert "hx-get" in resp.text
+
+        job_id = self._job_id_from(resp.text)
+        final = self._wait_for_done(client, job_id)
+        assert 'data-status="ok"' in final.text
+        # The final payload carries the rendered report.
+        assert "Scan report" in final.text
+
+    def test_htmx_batch_returns_modal_then_results(self, client, monkeypatch, tmp_path, local_repo):
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        resp = client.post(
+            "/batch",
+            data={"batch_yaml": f"repos:\n  - {local_repo}\n"},
+            headers={"HX-Request": "true"},
+        )
+        assert resp.status_code == 200
+        assert 'id="progress-modal"' in resp.text
+        assert "Batch scanning" in resp.text
+
+        job_id = self._job_id_from(resp.text)
+        final = self._wait_for_done(client, job_id)
+        assert 'data-status="ok"' in final.text
+        assert "Batch scan report" in final.text
+
+    def test_progress_unknown_job(self, client):
+        resp = client.get("/progress/does-not-exist")
+        assert resp.status_code == 200
+        assert 'data-status="gone"' in resp.text
+
+    def test_progress_bar_partial_while_running(self, client, monkeypatch):
+        """While a job runs, the poll returns the bar partial, not results."""
+        import starter_pack_scanner.web.app as web_app
+
+        job_id = web_app._new_job()
+        web_app._job_update(job_id, 42, "Running check 5/26")
+        try:
+            resp = client.get(f"/progress/{job_id}")
+            assert resp.status_code == 200
+            assert 'aria-valuenow="42"' in resp.text
+            assert "Running check 5/26" in resp.text
+            assert "progress-done" not in resp.text
+        finally:
+            web_app._job_pop(job_id)
+
+    def test_job_removed_after_collection(self, client, monkeypatch):
+        import starter_pack_scanner.web.app as web_app
+
+        job_id = web_app._new_job()
+        web_app._job_finish(job_id, "<p>results</p>")
+        resp = client.get(f"/progress/{job_id}")
+        assert 'data-status="ok"' in resp.text
+        # Second poll: the job is gone.
+        resp2 = client.get(f"/progress/{job_id}")
+        assert 'data-status="gone"' in resp2.text
+
+    def test_scan_progress_callback_fires(self, client, monkeypatch, tmp_path, local_repo):
+        """The scanner's progress callback drives the job's percent/step."""
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        import starter_pack_scanner.web.app as web_app
+
+        monkeypatch.setattr(web_app, "validate_repo_url", lambda u: None)
+        events: list[tuple[int, str]] = []
+        original_scan = web_app.scan
+
+        def spying_scan(*args, **kwargs):
+            progress = kwargs.get("progress")
+
+            def spy(pct: int, step: str) -> None:
+                events.append((pct, step))
+                if progress:
+                    progress(pct, step)
+
+            kwargs["progress"] = spy
+            return original_scan(*args, **kwargs)
+
+        monkeypatch.setattr(web_app, "scan", spying_scan)
+        resp = client.post(
+            "/scan",
+            data={"repo_url": local_repo},
+            headers={"HX-Request": "true"},
+        )
+        job_id = self._job_id_from(resp.text)
+        self._wait_for_done(client, job_id)
+        # Milestones were reported: cloning, checks, completion.
+        steps = [s for _, s in events]
+        assert any("Cloning" in s for s in steps)
+        assert any("Running check" in s for s in steps)
+        assert events[-1][0] == 100
+
+
 class TestScanCaching:
     def test_second_scan_is_cached(self, client, monkeypatch, tmp_path):
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))

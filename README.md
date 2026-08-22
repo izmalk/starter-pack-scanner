@@ -232,6 +232,12 @@ and a branch, and get a rendered report of all checks. A **Batch scan** tab
 accepts pasted batch YAML (same format as `--batch`), and the Advanced
 section lets you run only the URL-migration validation group.
 
+While a scan runs, a retro (90s/00s-style) progress modal shows a CRT-style
+scanning animation, a linear progress bar with percentage, and the current
+step (e.g. "Cloning…", "Running check 12/26: Migration: Slug"). Scans run
+in a background thread; the modal polls a `/progress/{job_id}` endpoint
+every 400ms and closes automatically when the report is ready.
+
 ### Start and stop
 
 ```bash
@@ -271,6 +277,12 @@ The web GUI has **no authentication** and is intended for local use only:
 
 - The GUI renders whatever checks are in `ALL_CHECKS` — adding a new check
   (see below) requires no web changes.
+- **Progress modal**: HTMX requests to `/scan` and `/batch` start a
+  background job (`web/app.py` `_JOBS` registry) and return the
+  `_progress.html` modal; `progress.js` polls `/progress/{job_id}` and
+  swaps the finished report into `#results`. Non-HTMX posts (tests, curl)
+  keep the old synchronous behaviour. `scan()` and `run_batch()` accept an
+  optional `progress` callback `(percent, step)` used to drive the modal.
 - Styling is built on [Vanilla Framework](https://vanillaframework.io/)
   (Canonical's design system), hotlinked from `assets.ubuntu.com`: Ubuntu
   fonts, `--vf-color-*` custom properties, and the `is-dark` class for dark

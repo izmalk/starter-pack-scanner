@@ -14,6 +14,7 @@
   <script src="/static/tabs.js" defer></script>
   <script src="/static/localtime.js" defer></script>
   <script src="/static/batch-validate.js" defer></script>
+  <script src="/static/progress.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -64,7 +65,7 @@
     </div>
 
     <section class="card form-card" data-panel="single" aria-label="Scan form">
-      <form hx-post="/scan" hx-target="#results" hx-swap="innerHTML" hx-indicator="#scan-spinner">
+      <form hx-post="/scan" hx-target="#results-single" hx-swap="innerHTML" hx-indicator="#scan-spinner">
         <div class="field">
           <label for="repo-url">Repository URL <span class="required" title="Required">*</span></label>
           <input type="url" id="repo-url" name="repo_url" required autofocus
@@ -105,7 +106,7 @@
     </section>
 
     <section class="card form-card" data-panel="batch" hidden aria-label="Batch scan form">
-      <form hx-post="/batch" hx-target="#results" hx-swap="innerHTML" hx-indicator="#scan-spinner">
+      <form hx-post="/batch" hx-target="#results-batch" hx-swap="innerHTML" hx-indicator="#scan-spinner">
         <p class="field-help has-tooltip">
           Paste a batch YAML file below, or run the example as-is
           <i class="p-icon--information info-icon" tabindex="0" role="note"
@@ -133,7 +134,8 @@
       </form>
     </section>
 
-    <section id="results" aria-live="polite" aria-label="Scan results"></section>
+    <section id="results-single" class="results-container" aria-live="polite" aria-label="Single scan results"></section>
+    <section id="results-batch" class="results-container" hidden aria-live="polite" aria-label="Batch scan results"></section>
   </main>
 
   <footer class="footer">

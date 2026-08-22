@@ -1,0 +1,51 @@
+{# Progress modal shell — returned by POST /scan and /batch for HTMX requests.
+   The inner #progress-poll div polls /progress/{job_id} every 400ms; each
+   poll swaps in _progress_bar.html until the job finishes, at which point
+   the response carries #progress-done and progress.js closes the modal. #}
+<div class="progress-modal-overlay" id="progress-modal" role="dialog"
+     aria-modal="true" aria-label="Scan progress">
+  <div class="progress-modal retro-crt">
+    <div class="retro-window">
+      <div class="retro-titlebar">
+        <span class="retro-title">{{ title }} — please wait</span>
+        <span class="retro-btn retro-btn-min" aria-hidden="true"></span>
+        <span class="retro-btn retro-btn-max" aria-hidden="true"></span>
+        <span class="retro-btn retro-btn-close" aria-hidden="true"></span>
+      </div>
+      <div class="retro-screen">
+        <div class="retro-scanline" aria-hidden="true"></div>
+        {# A tiny browser window with a URL bar and a page of text —
+           the "web page" being scanned. #}
+        <div class="retro-page" aria-hidden="true">
+          <div class="retro-page-chrome">
+            <span class="retro-page-btn"></span>
+            <span class="retro-page-btn"></span>
+            <span class="retro-page-btn"></span>
+            <span class="retro-page-url"></span>
+          </div>
+          <div class="retro-page-body">
+            <div class="retro-line retro-line-title"></div>
+            <div class="retro-line"></div>
+            <div class="retro-line"></div>
+            <div class="retro-line retro-line-short"></div>
+            <div class="retro-line retro-line-gap"></div>
+            <div class="retro-line"></div>
+            <div class="retro-line"></div>
+            <div class="retro-line retro-line-short"></div>
+            <div class="retro-line retro-line-gap"></div>
+            <div class="retro-line"></div>
+            <div class="retro-line retro-line-short"></div>
+          </div>
+        </div>
+        <div class="retro-statusline" aria-hidden="true">
+          <span class="retro-blink">●</span> SCANNING DOCUMENTATION…
+        </div>
+      </div>
+      <div id="progress-poll"
+           hx-get="/progress/{{ job_id }}"
+           hx-trigger="load, every 400ms"
+           hx-swap="innerHTML">
+      </div>
+    </div>
+  </div>
+</div>

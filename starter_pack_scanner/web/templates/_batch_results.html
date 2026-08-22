@@ -1,4 +1,4 @@
-{# Batch results partial, returned by POST /batch and swapped into #results. #}
+{# Batch results partial, returned by POST /batch and swapped into #results-batch. #}
 {% macro check_list(report) %}
 <ul class="checks">
   {% for r in report.results %}
@@ -47,7 +47,7 @@
         <span class="count count-fail">{{ total_failed }} failed</span>
       </div>
       <button type="button" class="btn btn-secondary btn-small"
-              hx-post="/batch" hx-target="#results" hx-swap="innerHTML"
+              hx-post="/batch" hx-target="#results-batch" hx-swap="innerHTML"
               hx-indicator="#scan-spinner"
               hx-vals='{"batch_yaml": {{ batch_yaml | tojson }}, "refresh": "true"}'>
         Re-scan all
@@ -84,7 +84,7 @@
         {% if entry.check_group %}<span class="badge badge-branch">{{ entry.check_group }}</span>{% endif %}
         <time class="timestamp" datetime="{{ report.scanned_at.isoformat() }}">{{ report.scanned_at.strftime("%Y-%m-%d %H:%M UTC") }}</time>
         <button type="button" class="btn btn-secondary btn-small"
-                hx-post="/batch" hx-target="#results" hx-swap="innerHTML"
+                hx-post="/batch" hx-target="#results-batch" hx-swap="innerHTML"
                 hx-indicator="#scan-spinner"
                 hx-vals='{"batch_yaml": {{ single_entry_yaml(entry) | tojson }}, "refresh": "true"}'>
           Re-scan
