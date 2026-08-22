@@ -82,6 +82,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip all checks that require network access to the published docs site.",
     )
     parser.add_argument(
+        "--no-recommendations",
+        action="store_true",
+        help="Hide the 'Fix:' guidance shown for failed checks (for terse CI logs).",
+    )
+    parser.add_argument(
         "--old-url",
         default=None,
         metavar="URL",
@@ -154,6 +159,12 @@ def main(argv: list[str] | None = None) -> None:
             c = cls()
             print(f"  {c.id:20s} {c.description}")
         sys.exit(0)
+
+    # Apply the recommendation visibility preference before any report is
+    # printed (CheckResult.__str__ reads the module-level toggle).
+    from starter_pack_scanner.base import set_show_recommendations
+
+    set_show_recommendations(not args.no_recommendations)
 
     if not args.repo and not args.batch:
         parser.error("the following argument is required: repo (or --batch FILE)")

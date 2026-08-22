@@ -73,6 +73,25 @@ class TestScanEndpoint:
         )
         assert resp.status_code == 200
         assert "Scan failed" in resp.text
+
+    def test_failed_check_shows_collapsed_fix_toggle(self, client, monkeypatch, tmp_path, local_repo):
+        """Failed checks render a collapsed 'How to fix this?' <details>;
+        passing checks render no toggle."""
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        # The web app imports validate_repo_url into its own namespace, so
+        # patch it there too (the local_repo fixture only patches scanner's).
+        import starter_pack_scanner.web.app as web_app
+
+        monkeypatch.setattr(web_app, "validate_repo_url", lambda u: None)
+        resp = client.post("/scan", data={"repo_url": local_repo, "offline": "true"})
+        assert resp.status_code == 200
+        assert "Scan report" in resp.text
+        # The local fixture fails several repo-side checks (no slug, no
+        # sitemap config, ...), so at least one toggle must be present.
+        assert "How to fix this?" in resp.text
+        assert '<details class="check-fix">' in resp.text
+        # Collapsed by default: no 'open' attribute on the details element.
+        assert '<details class="check-fix" open' not in resp.text
         assert "docs URL" in resp.text
 
 

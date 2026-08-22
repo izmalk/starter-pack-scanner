@@ -54,12 +54,21 @@ Makefile                 # install / run / serve-web / test / lint / clean
     `--group` (CLI) or `check_group` (API/GUI).
 - Register new checks by adding the class to `ALL_CHECKS` in `checks.py`.
   The CLI `--list-checks`, GUI, and batch mode pick them up automatically.
+- **Every check must define a `recommendation`** (fix guidance shown on
+  failure). Keep it under `RECOMMENDATION_SOFT_LIMIT` (300) chars where
+  possible; `tests/test_recommendations.py` enforces the hard limit
+  (`RECOMMENDATION_HARD_LIMIT`, 500). Both constants live in `base.py`.
 - **Import rule**: `base.py` holds `CheckResult`/`BaseCheck` to avoid
   circular imports. `checks.py` and `migration_checks.py` both import from
   `base.py`. Never import `checks.py` from a check module at module level.
 - **Shared "unavailable" results**: `base.py` provides `site_unavailable(check,
   site_ctx)` and `no_pages(check, site_ctx)` — use these instead of writing a
-  per-class `_unavailable()` method.
+  per-class `_unavailable()` method. Both set their own scan-setup
+  recommendation, which `execute()` preserves.
+- **`execute()` vs `run()`**: the scanner calls `check.execute(...)`, which
+  wraps `run()` and stamps the class `recommendation` onto the result. Tests
+  may call `run()` directly (the recommendation is then empty). Never make
+  the scanner call `run()` directly or recommendations are lost.
 - **Checks needing constructor args**: `DocsDomainCheck(allow_domains)` and
   `OldUrlRedirectCheck(old_url)` take an argument. `scanner.py::scan()`
   special-cases their instantiation by class identity in an if/elif chain —

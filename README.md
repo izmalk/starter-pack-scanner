@@ -135,6 +135,12 @@ Skip all checks that need network access to the published docs site:
 starter-pack-scanner https://github.com/canonical/kafka-operator --offline
 ```
 
+Hide the "Fix:" guidance printed for failed checks (for terse CI logs):
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --no-recommendations
+```
+
 Override the published docs URL (auto-detected from `conf.py` otherwise):
 
 ```bash
@@ -405,6 +411,12 @@ to override URL detection.
         id = "my-check"
         name = "My Custom Check"
         description = "Describe what this check verifies."
+
+        # Fix guidance shown when the check fails ("How to fix this?" in the
+        # GUI, a "Fix:" line in the CLI). Required for every check; keep it
+        # under ~300 characters (hard limit 500, enforced by the tests).
+        # Plain text with bare URLs and `-`/`1.` list lines renders in both.
+        recommendation = "Set `the_setting` in `conf.py` to ..."
 
         # Set to True if the check needs the published-site context
         # (network access); the scanner then builds a SiteContext.

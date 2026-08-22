@@ -333,7 +333,7 @@ def scan(
                 check = check_cls(old_url)
             else:
                 check = check_cls()
-            results.append(check.run(repo_root, docs_dir, site_ctx))
+            results.append(check.execute(repo_root, docs_dir, site_ctx))
 
         report.results = results
         return report

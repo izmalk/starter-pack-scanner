@@ -194,6 +194,12 @@ class SlugCheck(BaseCheck):
     id = "migration-slug"
     name = "Migration: Slug"
     description = "Checks that conf.py defines a slug matching the docs URL path (e.g. 'example/docs')."
+    recommendation = (
+        "Set `slug` in `conf.py` to the URL path after the domain, up to the docs "
+        "root only — no leading/trailing `/`, no scheme, no language (`en`) or "
+        "version segment. It must match the HAProxy frontend path, e.g. "
+        "slug = \"data/kafka/docs\" for canonical.com/data/kafka/docs/4/."
+    )
     group = MIGRATION_GROUP
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
@@ -244,6 +250,15 @@ class BaseUrlCheck(BaseCheck):
     id = "migration-baseurl"
     name = "Migration: Base URL"
     description = "Checks that html_baseurl/ogp_site_url are production Canonical URLs with a trailing slash."
+    recommendation = (
+        "In `conf.py`: "
+        "1. Point `html_baseurl` and `ogp_site_url` at the production domain "
+        "(canonical.com/ubuntu.com), never readthedocs-hosted.com. "
+        "2. End both with a trailing slash. "
+        "3. For versioned docs, include the version segment "
+        "(f-string over READTHEDOCS_VERSION, e.g. "
+        "https://canonical.com/<slug>/<version>/)."
+    )
     group = MIGRATION_GROUP
 
     _PRODUCTION_HOSTS = ("canonical.com", "ubuntu.com", "juju.is", "charmhub.io",
@@ -311,6 +326,13 @@ class SitemapConfigCheck(BaseCheck):
     id = "migration-sitemap-config"
     name = "Migration: Sitemap Config"
     description = "Checks sitemap_url_scheme and sitemap_filename settings in conf.py."
+    recommendation = (
+        "Set both in `conf.py`: "
+        "1. sitemap_url_scheme = \"{link}\" "
+        "2. sitemap_filename = \"doc-sitemap.xml\" "
+        "Omitting the filename leaves the sphinx-sitemap default (sitemap.xml), "
+        "which deviates from the migration guide's convention."
+    )
     group = MIGRATION_GROUP
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
@@ -346,6 +368,13 @@ class OverwriteLinksCheck(BaseCheck):
     id = "migration-overwrite-links"
     name = "Migration: overwrite_links.js"
     description = "Checks that a link-rewriting script is registered and configured correctly."
+    recommendation = (
+        "Customise `scripts/url-overwrite.js` from canonical/RTD-Proxy, save as "
+        "`_static/js/overwrite_links.js`, register in `html_js_files`. Set "
+        "`rtd_address` to the `*.readthedocs-hosted.com` host and `new_address` to "
+        "the new path — no protocol, no trailing slash. For tag versioning use the "
+        "RTD custom-script addon instead (and remove the file from the repo)."
+    )
     group = MIGRATION_GROUP
 
     # Match the guide's canonical variable names as well as sensible
@@ -474,6 +503,12 @@ class SitemapLiveCheck(BaseCheck):
     id = "migration-sitemap-live"
     name = "Migration: Live Sitemap"
     description = "Checks that a sitemap exists at /sitemap.xml or /doc-sitemap.xml with production URLs."
+    recommendation = (
+        "Sitemap URLs are built from `html_baseurl` + `sitemap_url_scheme`. A "
+        "missing or duplicated version segment in `html_baseurl` is the usual "
+        "cause — fix it in `conf.py` and rebuild. If the sitemap is missing "
+        "entirely, check it's enabled in the Read the Docs project settings."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -529,6 +564,12 @@ class CanonicalUrlCheck(BaseCheck):
     id = "migration-canonical-url"
     name = "Migration: Canonical URL"
     description = "Checks that pages have a canonical URL in <head> matching the production docs URL."
+    recommendation = (
+        "Canonical URLs come from `html_baseurl` in `conf.py`. If they point at "
+        "staging or an RTD host, fix `html_baseurl` to the production URL "
+        "(with trailing slash and version segment) and rebuild. `overwrite_links.js` "
+        "also rewrites them client-side — check its `new_address` value."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -588,6 +629,12 @@ class NotFoundCheck(BaseCheck):
     id = "migration-404"
     name = "Migration: 404 Page"
     description = "Checks that invalid pages and an invalid version both return a real HTTP 404 (not soft 200)."
+    recommendation = (
+        "A soft 404 (HTTP 200 for a missing page) is an SEO problem. The HAProxy "
+        "config needs `http-response set-status 404 if ...` — see the 'Backend' "
+        "section of the migration guide. A wrong `slug` in `conf.py` is the usual "
+        "root cause; ask @docproxysupport on Mattermost for config changes."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -629,6 +676,12 @@ class AnalyticsCheck(BaseCheck):
     id = "migration-analytics"
     name = "Migration: Analytics"
     description = "Checks that the cookie consent banner and GTM script are present on pages."
+    recommendation = (
+        "Add the GTM snippet (`GTM-KNX3CJC` is the Canonical docs container) and the "
+        "cookie consent banner to the page templates — the Sphinx Stack ships "
+        "defaults in `_templates/header.html` and `html_css_files` "
+        "(`cookie-banner.css`). See the migration guide's Analytics section."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -688,6 +741,12 @@ class FlyoutPdfCheck(BaseCheck):
     id = "migration-flyout-pdf"
     name = "Migration: Flyout & PDF Links"
     description = "Checks that RTD flyout/addons data and PDF download links point at production, not RTD hosts."
+    recommendation = (
+        "Flyout/PDF links still point at the RTD host. Check `overwrite_links.js` "
+        "is loaded and its `rtd_address`/`new_address` match the actual old/new "
+        "hosts. Multiple overwrite scripts (repo + RTD custom-script addon) can "
+        "conflict — keep only one. See the guide's 'URL rewriting' section."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -744,6 +803,12 @@ class FlyoutVersionsCheck(BaseCheck):
     id = "migration-flyout-versions"
     name = "Migration: Flyout Versions"
     description = "Checks that flyout version names look sensible (no leftover 'migrate'/'test' artefacts)."
+    recommendation = (
+        "Clean up leftover migration versions in the Read the Docs dashboard: "
+        "delete or hide `migrate-*`/`test`/`tmp` versions, and remove the temporary "
+        "`/latest` redirects that were set up during migration. See the guide's "
+        "troubleshooting page ('<version> already exists')."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -795,6 +860,12 @@ class OldUrlRedirectCheck(BaseCheck):
     id = "migration-old-url-redirect"
     name = "Migration: Old URL Redirect"
     description = "Checks that the old Read the Docs / documentation.ubuntu.com URL redirects to the new one."
+    recommendation = (
+        "Add a redirect from the old URL in the Read the Docs dashboard: for "
+        "documentation.ubuntu.com sources use the Ubuntu Documentation Library "
+        "project (`/example*` → `https://canonical.com/example/docs/:splat`); for "
+        "readthedocs-hosted.com sources set it on the old project itself."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -840,6 +911,12 @@ class SitemapIndexCheck(BaseCheck):
     id = "migration-sitemap-index"
     name = "Migration: Sitemap Index Registration"
     description = "Checks that the docs sitemap is registered in the canonical.com/ubuntu.com sitemap index."
+    recommendation = (
+        "Submit a PR adding a `<sitemap>` entry to the site-wide index: "
+        "github.com/canonical/canonical.com (templates/sitemap-index.xml) or "
+        "github.com/canonical/ubuntu.com (templates/sitemap_index.xml). See the "
+        "migration guide's 'Sitemap index records' section for the exact format."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -908,6 +985,13 @@ class UrlShapeCheck(BaseCheck):
     id = "migration-url-shape"
     name = "Migration: Supported URL Shape"
     description = "Checks that the docs URL follows the supported <product>/docs placement under the marketing page."
+    recommendation = (
+        "Docs should live under the product's marketing page: "
+        "`canonical.com/<product>/docs` or `ubuntu.com/<eco>/<product>/docs`. "
+        "See the supported-URLs reference in the RTD-Proxy docs. Paths on the "
+        "content-cache exception list (dqlite, microk8s, ...) need extra "
+        "coordination — contact @docproxysupport on Mattermost."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -957,6 +1041,12 @@ class RtdLeakageCheck(BaseCheck):
     id = "migration-no-rtd-leakage"
     name = "Migration: No RTD Leakage"
     description = "Checks that sampled pages contain no links to Read the Docs / documentation.ubuntu.com / staging hosts."
+    recommendation = (
+        "Links still point at the old host. Check `overwrite_links.js` is in "
+        "`html_js_files` with correct `rtd_address`/`new_address`, and grep the "
+        "sources for hardcoded RTD URLs (`grep -r readthedocs docs/`). Intersphinx "
+        "targets pointing at other RTD-hosted projects are expected and fine."
+    )
     group = MIGRATION_GROUP
     requires_site = True
 
@@ -1004,6 +1094,11 @@ class StaticPathCheck(BaseCheck):
     id = "migration-static-path"
     name = "Migration: Static Path"
     description = "Checks that html_static_path includes '_static', as required for overwrite_links.js discovery."
+    recommendation = (
+        "Set html_static_path = [\"_static\"] in `conf.py` (append to the list if "
+        "it already has other entries). The migration guide requires it so "
+        "`overwrite_links.js` and other static assets are discoverable at build time."
+    )
     group = MIGRATION_GROUP
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:

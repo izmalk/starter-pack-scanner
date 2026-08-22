@@ -51,6 +51,12 @@
         {% for d in r.details %}<li>{{ d }}</li>{% endfor %}
       </ul>
       {% endif %}
+      {% if not r.passed and r.recommendation %}
+      <details class="check-fix">
+        <summary>How to fix this?</summary>
+        <p class="check-fix-body">{{ r.recommendation }}</p>
+      </details>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>

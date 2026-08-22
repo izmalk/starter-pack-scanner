@@ -85,6 +85,11 @@ class DocsLocationCheck(BaseCheck):
     id = "docs-dir"
     name = "Docs Directory"
     description = "Checks whether the documentation is in the standard docs/ directory of the repository."
+    recommendation = (
+        "Move the documentation into a top-level `docs/` directory — the Sphinx Stack "
+        "convention that tooling and CI workflows assume. Update `.readthedocs.yaml` "
+        "(`sphinx.configuration`) to point at the new `docs/conf.py` path."
+    )
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         if docs_dir is None:
@@ -116,6 +121,11 @@ class VersionCheck(BaseCheck):
     id = "version"
     name = "Starter Pack Version"
     description = "Checks whether the starter pack version is the latest available."
+    recommendation = (
+        "Update the Sphinx Stack: run `make update` from the `docs/` directory (or "
+        "`python _dev/update_sp.py`), then commit the refreshed `_dev/` files. "
+        "See https://github.com/canonical/sphinx-stack for the changelog."
+    )
 
     _LATEST_VERSION_URL = (
         "https://raw.githubusercontent.com/canonical/sphinx-stack/"
@@ -197,6 +207,11 @@ class ReadmeDocsLinkCheck(BaseCheck):
     id = "readme-docs-link"
     name = "README Docs Link"
     description = "Checks whether the repository README contains a link to the product's documentation."
+    recommendation = (
+        "Add a link to the published documentation in the repository README, e.g. "
+        "`Documentation: https://canonical.com/<product>/docs/`. Use the URL from "
+        "`html_baseurl` in `conf.py` so the link matches the live site."
+    )
 
     _URL_RE = re.compile(r"https?://[^\s\)\"'>]+", re.IGNORECASE)
 
@@ -309,6 +324,11 @@ class ReadmeRtdBadgeCheck(BaseCheck):
     id = "readme-rtd-badge"
     name = "README RTD Badge"
     description = "Checks whether the repository README contains a Read the Docs badge."
+    recommendation = (
+        "Add a build-status badge to the README, e.g. "
+        "`[![Docs](https://readthedocs.org/projects/<project>/badge/?version=latest)]` "
+        "linked to the documentation URL."
+    )
 
     _RTD_BADGE_PATTERNS = [
         re.compile(r"readthedocs\.org/projects/[^/]+/badge", re.IGNORECASE),
@@ -386,6 +406,11 @@ class LlmsTxtCheck(BaseCheck):
     id = "llms-txt"
     name = "llms.txt Available"
     description = "Checks that the published documentation serves an llms.txt index for AI agents."
+    recommendation = (
+        "Add `sphinx_llm.txt` to `extensions` in `conf.py` so the build emits `llms.txt` "
+        "at the docs root. Set `llms_txt_description` for the intro block. "
+        "See https://github.com/canonical/sphinx-llm"
+    )
     requires_site = True
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
@@ -427,6 +452,13 @@ class LlmsTxtLinksCheck(BaseCheck):
     id = "llms-txt-links"
     name = "llms.txt Links"
     description = "Checks that a sample of links from llms.txt resolves to live pages."
+    recommendation = (
+        "llms.txt links must match the published URL structure. On versioned docs, "
+        "build `html_baseurl` with the version segment "
+        "(f-string over READTHEDOCS_VERSION, e.g. "
+        "https://canonical.com/<slug>/<version>/), "
+        "including the trailing slash — otherwise every emitted link 404s."
+    )
     requires_site = True
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
@@ -467,6 +499,11 @@ class LlmsFullTxtCheck(BaseCheck):
     id = "llms-full-txt"
     name = "llms-full.txt Link"
     description = "Checks that llms.txt links to llms-full.txt and that the link is not broken."
+    recommendation = (
+        "`sphinx_llm.txt` generates `llms-full.txt` alongside `llms.txt`; the link "
+        "breaks when `html_baseurl` lacks the version segment or trailing slash. "
+        "Fix `html_baseurl` in `conf.py` and rebuild — both files are emitted together."
+    )
     requires_site = True
 
     _FULL_RE = re.compile(r"\[[^\]]*\]\((\S*llms-full\.txt)\)")
@@ -525,6 +562,12 @@ class PageMetadataCheck(BaseCheck):
     id = "page-metadata"
     name = "Page Metadata"
     description = "Checks that sampled pages have a non-empty meta description."
+    recommendation = (
+        "Add a description to each page via MyST front matter "
+        "(myst.html_meta.description in the page's YAML front matter). "
+        "Keep it under ~160 chars; it feeds search snippets and the "
+        "og:description preview."
+    )
     requires_site = True
 
     _META_DESC_RE = re.compile(
@@ -578,6 +621,12 @@ class DocsDomainCheck(BaseCheck):
     id = "docs-domain"
     name = "Major Documentation Domain"
     description = "Checks that the documentation is published on a major company domain (e.g. canonical.com, ubuntu.com)."
+    recommendation = (
+        "Publish on a Canonical domain (canonical.com, ubuntu.com, juju.is, ...) "
+        "following the RTD-Proxy migration guide: "
+        "https://documentation.ubuntu.com/rtd-proxy/how-to/migrate/ "
+        "If the domain is correct but new, extend the allow-list with `--allow-domain`."
+    )
     requires_site = True
 
     def __init__(self, extra_domains: set[str] | None = None):
@@ -610,6 +659,11 @@ class PageMarkdownCheck(BaseCheck):
     id = "page-markdown"
     name = "Markdown for AI"
     description = "Checks that sampled pages serve a Markdown version for AI (page URL + index.html.md)."
+    recommendation = (
+        "Add `sphinx_llm.txt` to `extensions` in `conf.py` — it pulls in "
+        "`sphinx-markdown-builder`, which emits `<page>/index.html.md` for every "
+        "page. Verify the files exist in the build output (`_build/`) after a rebuild."
+    )
     requires_site = True
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
@@ -656,6 +710,12 @@ class PageAgentDirectiveCheck(BaseCheck):
     id = "page-agent-directive"
     name = "Hidden AI Directive"
     description = "Checks that sampled pages contain a visually-hidden AI discovery directive (llms.txt pointer)."
+    recommendation = (
+        "Add a visually-hidden `<div data-agent-directive>` pointing at `llms.txt` "
+        "to `_templates/header.html`, hidden via the clip-rect technique in CSS "
+        "(not `display: none`, which risks being treated as cloaked content). "
+        "See the Agent-Friendly Docs spec: https://agentdocsspec.com/spec/"
+    )
     requires_site = True
 
     # Explicit markers used by the Canonical AIO setup.

@@ -469,6 +469,33 @@ body {
 
 .check-details li { margin-bottom: 0.15rem; }
 
+/* Collapsed "How to fix this?" guidance on failed checks. */
+.check-fix { margin-top: 0.5rem; }
+
+.check-fix summary {
+  cursor: pointer;
+  color: var(--vf-color-link-default);
+  font-size: 0.85rem;
+  user-select: none;
+  width: fit-content;
+}
+
+.check-fix summary:hover { color: var(--vf-color-link-visited); }
+.check-fix summary:focus-visible {
+  outline: 3px solid var(--vf-color-focus);
+  outline-offset: 1px;
+}
+
+.check-fix-body {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--vf-color-background-code);
+  border-left: 2px solid var(--vf-color-border-default);
+  color: var(--vf-color-text-default);
+  font-size: 0.85rem;
+  white-space: pre-line;
+}
+
 .report-footer {
   margin-top: 1.25rem;
   display: flex;
