@@ -6,7 +6,7 @@ PYTHON ?= .venv/bin/python
 PIP = $(PYTHON) -m pip
 VENV_FLAGS ?=
 
-.PHONY: help install install-cli install-web run test lint clean serve-web server-web web
+.PHONY: help install install-cli install-web run test lint clean serve-web server-web web stop web-stop
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-][a-zA-Z_ -]*:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -30,6 +30,19 @@ run: install ## Run the CLI scanner (pass REPO=..., e.g. make run REPO=https://g
 
 serve-web server-web web: install ## Start the local web GUI at http://127.0.0.1:8765
 	$(PYTHON) -m starter_pack_scanner.web.app
+
+stop web-stop: ## Stop the web GUI if it is running in the background (port 8765)
+	@pid=$$(ss -tlnp 2>/dev/null | grep ':8765' | grep -oP 'pid=\K[0-9]+' | head -1); \
+	if [ -n "$$pid" ]; then \
+		echo "Stopping web GUI (PID $$pid)…"; \
+		kill $$pid && sleep 1; \
+		if ss -tln 2>/dev/null | grep -q ':8765'; then \
+			echo "Still running — forcing."; kill -9 $$pid 2>/dev/null; sleep 1; \
+		fi; \
+		ss -tln 2>/dev/null | grep -q ':8765' && echo "ERROR: port 8765 still busy" || echo "Stopped."; \
+	else \
+		echo "Web GUI is not running (nothing on port 8765)."; \
+	fi
 
 test: install ## Run the test suite (offline; no network required)
 	$(PIP) install -q pytest httpx

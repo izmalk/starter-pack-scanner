@@ -92,6 +92,7 @@ make install      # create .venv and install everything (CLI + web GUI)
 make install-cli  # create .venv and install only the CLI dependencies
 make run REPO=https://github.com/canonical/kafka-operator  # run the scanner
 make serve-web    # start the web GUI at http://127.0.0.1:8765
+make stop         # stop the web GUI if it's running in the background (alias: web-stop)
 make test         # run the test suite (offline, no network needed)
 make lint         # compile-check all sources
 make clean        # remove build artifacts (keeps .venv)
