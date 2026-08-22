@@ -9,7 +9,7 @@ description = "Scanner for repositories based on Canonical's Sphinx Starter Pack
 readme = "README.md"
 license = "AGPL-3.0-only"
 requires-python = ">=3.10"
-dependencies = ["requests>=2.28"]
+dependencies = ["requests>=2.28", "PyYAML>=6.0"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

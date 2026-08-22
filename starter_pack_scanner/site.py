@@ -39,6 +39,38 @@ _SITEMAP_LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
 # Files that are site-wide indexes, not individual documentation pages.
 _INDEX_FILES = {"llms.txt", "llms-full.txt", "sitemap.xml", "genindex", "search"}
 
+# RTD-style version segments: "4", "1.5", "v2", "latest", "stable".
+_VERSION_SEGMENT_RE = re.compile(r"^(v?\d+(\.\d+)*|latest|stable)$", re.IGNORECASE)
+
+
+def _unversioned_prefix(base_url: str) -> str | None:
+    """If *base_url* ends in a version segment, return the unversioned prefix.
+
+    e.g. "https://example.com/docs/4/" → "https://example.com/docs/"
+    Returns None when the base URL is not versioned.
+    """
+    parsed = urlparse(base_url)
+    segments = [s for s in parsed.path.split("/") if s]
+    if not segments or not _VERSION_SEGMENT_RE.match(segments[-1]):
+        return None
+    unversioned_path = "/".join(segments[:-1])
+    return f"{parsed.scheme}://{parsed.netloc}/{unversioned_path}/"
+
+
+def rewrite_versioned(url: str, base_url: str) -> str:
+    """Insert the version segment into *url* when it points at the
+    unversioned base of a versioned docs site.
+
+    Some docs sites (RTD-style versioning) publish at versioned URLs
+    (``…/docs/4/page/``) while their llms.txt / sitemap.xml list unversioned
+    links (``…/docs/page/``) that return 404. Rewriting them against the
+    resolved (versioned) base URL makes the sampled pages reachable.
+    """
+    prefix = _unversioned_prefix(base_url)
+    if prefix and url.startswith(prefix) and not url.startswith(base_url):
+        return base_url + url[len(prefix):]
+    return url
+
 
 def _is_index_file(url: str) -> bool:
     """True for site-wide index files that should not be sampled as pages."""
@@ -182,6 +214,10 @@ def build_site_context(
         page_urls = [u for u in fetch_sitemap_urls(base) if not _is_index_file(u)]
         if page_urls:
             ctx.errors.append("llms.txt unavailable or empty; sampled pages from sitemap.xml instead.")
+
+    # Versioned docs sites often list unversioned links in llms.txt /
+    # sitemap.xml; rewrite them against the resolved (versioned) base URL.
+    page_urls = [rewrite_versioned(u, base) for u in page_urls]
 
     # Raw sampled URLs exactly as they appear in llms.txt / sitemap.xml
     # (llms.txt entries are Markdown URLs ending in .md).

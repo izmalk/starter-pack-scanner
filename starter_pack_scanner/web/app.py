@@ -13,12 +13,20 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+import yaml
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from starter_pack_scanner import cache
+from starter_pack_scanner.batch import (
+    EXAMPLE_BATCH_YAML,
+    BatchEntry,
+    BatchFileError,
+    load_batch,
+    run_batch,
+)
 from starter_pack_scanner.scanner import scan, validate_repo_url
 
 _WEB_DIR = Path(__file__).parent
@@ -38,7 +46,9 @@ app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="stat
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     """Render the scan form."""
-    return _TEMPLATES.TemplateResponse(request=request, name="index.html")
+    return _TEMPLATES.TemplateResponse(
+        request=request, name="index.html", context={"example_batch": EXAMPLE_BATCH_YAML}
+    )
 
 
 @app.post("/scan", response_class=HTMLResponse)
@@ -48,11 +58,13 @@ def run_scan(
     docs_url: str = Form(default=""),
     branch: str = Form(default=""),
     refresh: str = Form(default=""),
+    check_group: str = Form(default=""),
 ) -> HTMLResponse:
     """Run a scan (or serve a cached report) and return the results partial."""
     repo_url = repo_url.strip()
     docs_url = docs_url.strip() or None
     branch = branch.strip() or None
+    check_group = check_group.strip() or None
     force_refresh = refresh.strip().lower() in {"1", "true", "on"}
 
     def render(error: str | None = None, **context) -> HTMLResponse:
@@ -74,7 +86,17 @@ def run_scan(
         if docs_error:
             return render(error=f"Invalid docs URL: {docs_error}")
 
-    key = cache.cache_key(repo_url=repo_url, branch=branch, docs_url=docs_url)
+    # Fold the check group into the cache key via its include set, so
+    # group-filtered scans don't collide with full scans.
+    include_ids = None
+    if check_group:
+        from starter_pack_scanner.checks import checks_by_group
+
+        include_ids = {c().id for c in checks_by_group(check_group)}
+
+    key = cache.cache_key(
+        repo_url=repo_url, branch=branch, docs_url=docs_url, include_checks=include_ids
+    )
 
     if not force_refresh:
         cached = cache.get(key)
@@ -84,10 +106,81 @@ def run_scan(
     # Block until a scan slot is free; sync endpoint → FastAPI threadpool,
     # so waiting here does not stall the event loop.
     with _SCAN_SLOTS:
-        report = scan(repo_url=repo_url, branch=branch, docs_url=docs_url)
+        report = scan(repo_url=repo_url, branch=branch, docs_url=docs_url, check_group=check_group)
         cache.put(key, report)
 
     return render(report=report, cached=False)
+
+
+def _single_entry_yaml(entry: BatchEntry) -> str:
+    """Serialise one batch entry back to YAML (for the per-tab Re-scan button)."""
+    import yaml
+
+    mapping: dict = {"repo": entry.repo}
+    if entry.branch:
+        mapping["branch"] = entry.branch
+    if entry.docs_url:
+        mapping["docs_url"] = entry.docs_url
+    if entry.check_group:
+        mapping["check_group"] = entry.check_group
+    if entry.offline:
+        mapping["offline"] = True
+    if entry.exclude_checks:
+        mapping["exclude_checks"] = sorted(entry.exclude_checks)
+    if entry.include_checks:
+        mapping["include_checks"] = sorted(entry.include_checks)
+    return yaml.safe_dump({"repos": [mapping]}, sort_keys=False)
+
+
+@app.post("/batch", response_class=HTMLResponse)
+def run_batch_scan(
+    request: Request,
+    batch_yaml: str = Form(default=""),
+    refresh: str = Form(default=""),
+) -> HTMLResponse:
+    """Run a batch scan from pasted YAML and return the batch results partial."""
+    force_refresh = refresh.strip().lower() in {"1", "true", "on"}
+
+    def render(error: str | None = None, **context) -> HTMLResponse:
+        return _TEMPLATES.TemplateResponse(
+            request=request,
+            name="_batch_results.html",
+            context={
+                "error": error,
+                "batch_yaml": batch_yaml,
+                "single_entry_yaml": _single_entry_yaml,
+                **context,
+            },
+        )
+
+    # An empty field means "run the example" (shown as the placeholder).
+    if not batch_yaml.strip():
+        batch_yaml = EXAMPLE_BATCH_YAML
+
+    # Parse the YAML locally so we can report syntax errors precisely.
+    try:
+        data = yaml.safe_load(batch_yaml)
+    except yaml.YAMLError as exc:
+        return render(error=f"Invalid YAML: {exc}")
+
+    # Write to a temp file to reuse the full validation from load_batch.
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as f:
+        f.write(batch_yaml)
+        tmp = Path(f.name)
+    try:
+        try:
+            entries = load_batch(tmp)
+        except BatchFileError as exc:
+            return render(error=str(exc))
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    with _SCAN_SLOTS:
+        results = run_batch(entries, refresh=force_refresh)
+
+    return render(results=results)
 
 
 def main() -> None:

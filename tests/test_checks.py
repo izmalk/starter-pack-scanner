@@ -15,8 +15,8 @@ from starter_pack_scanner.checks import (
 from tests.conftest import make_repo
 
 
-def run_check(check, repo_root: Path, docs_dir: Path | None):
-    return check.run(repo_root, docs_dir)
+def run_check(check, repo_root: Path, docs_dir: Path | None, site_ctx=None):
+    return check.run(repo_root, docs_dir, site_ctx)
 
 
 class TestCheckRegistry:
@@ -73,8 +73,51 @@ class TestVersionCheck:
 
 
 class TestReadmeChecks:
-    def test_docs_link_found(self, tmp_path):
+    def test_docs_link_found_via_conf(self, tmp_path):
+        # conf.py html_baseurl matches the README link → product docs found.
         repo = make_repo(tmp_path)
+        result = run_check(ReadmeDocsLinkCheck(), repo, repo / "docs")
+        assert result.passed
+        assert "product documentation" in result.message
+
+    def test_docs_link_found_via_site_ctx(self, tmp_path):
+        from starter_pack_scanner.site import SiteContext
+
+        repo = make_repo(tmp_path, readme="# Example\nSee https://canonical.com/other/docs/\n")
+        ctx = SiteContext(base_url="https://canonical.com/other/docs/")
+        result = run_check(ReadmeDocsLinkCheck(), repo, repo / "docs", ctx)
+        assert result.passed
+
+    def test_versioned_link_matches_unversioned_expected(self, tmp_path):
+        from starter_pack_scanner.site import SiteContext
+
+        # README links to the versioned page; expected base is versioned too.
+        repo = make_repo(
+            tmp_path,
+            readme="# Example\nSee https://canonical.com/example/docs/4/tutorial/\n",
+        )
+        ctx = SiteContext(base_url="https://canonical.com/example/docs/4/")
+        result = run_check(ReadmeDocsLinkCheck(), repo, repo / "docs", ctx)
+        assert result.passed
+
+    def test_unrelated_docs_link_fails(self, tmp_path):
+        # Links to other products' docs (juju.is/docs, opensearch.org/docs)
+        # must NOT count as this product's documentation.
+        repo = make_repo(
+            tmp_path,
+            readme="# Example\nSee https://juju.is/docs and https://opensearch.org/docs\n",
+        )
+        result = run_check(ReadmeDocsLinkCheck(), repo, repo / "docs")
+        assert not result.passed
+        assert "product documentation" in result.message
+
+    def test_generic_fallback_without_conf_or_ctx(self, tmp_path):
+        # No conf.py docs URL and no site context → generic docs links pass.
+        repo = make_repo(
+            tmp_path,
+            readme="# Example\nSee https://example.readthedocs.io/\n",
+            conf_baseurl=None,
+        )
         result = run_check(ReadmeDocsLinkCheck(), repo, repo / "docs")
         assert result.passed
 

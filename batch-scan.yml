@@ -1,0 +1,28 @@
+# Batch scan configuration for the starter pack scanner.
+#
+# Run with:  starter-pack-scanner --batch batch-scan.yml
+# Or in the web GUI: paste the file contents in the Batch tab.
+#
+# Structure:
+#   defaults: optional scan options applied to every entry below
+#             (each entry can override any of them)
+#   repos:    list of repositories to scan; each entry is either a plain
+#             URL string or a mapping with a 'repo' key plus options.
+
+defaults:
+  branch: null
+  offline: false
+
+repos:
+  - repo: https://github.com/canonical/kafka-operator
+    docs_url: https://canonical.com/data/kafka/docs/
+
+  - repo: https://github.com/canonical/opensearch-operator
+    docs_url: https://canonical.com/data/opensearch/docs/
+
+  - repo: https://github.com/canonical/valkey-operator
+    docs_url: https://canonical.com/data/valkey/docs/
+
+  - repo: https://github.com/canonical/cassandra-operator
+    docs_url: https://canonical.com/data/cassandra/docs/
+    check_group: migration

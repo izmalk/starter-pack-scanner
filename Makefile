@@ -6,10 +6,10 @@ PYTHON ?= .venv/bin/python
 PIP = $(PYTHON) -m pip
 VENV_FLAGS ?=
 
-.PHONY: help install install-web run test lint clean serve-web
+.PHONY: help install install-web run test lint clean serve-web server-web web
 
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z_-][a-zA-Z_ -]*:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .venv/bin/python: ## Create the virtual environment (internal target)
@@ -25,7 +25,7 @@ install-web: .venv/bin/python ## Install the package with the web GUI extras
 run: install ## Run the CLI scanner (pass REPO=..., e.g. make run REPO=https://github.com/canonical/kafka-operator)
 	$(PYTHON) -m starter_pack_scanner $(REPO)
 
-serve-web: install-web ## Start the local web GUI at http://127.0.0.1:8765
+serve-web server-web web: install-web ## Start the local web GUI at http://127.0.0.1:8765
 	$(PYTHON) -m starter_pack_scanner.web.app
 
 test: install-web ## Run the test suite (offline; no network required)

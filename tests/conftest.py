@@ -70,6 +70,7 @@ def make_repo(
             "[![Docs](https://readthedocs.org/projects/example/badge/?version=latest)]"
             "(https://example.readthedocs.io/)\n"
         )
+    # noqa: E501 — fixture content above
     (repo / "README.md").write_text(readme)
 
     _git("init", "-q", "-b", "main", cwd=repo)
@@ -156,3 +157,15 @@ def local_repo(monkeypatch, repo_factory):
 
     monkeypatch.setattr(scanner_mod, "validate_repo_url", fake_validate)
     return url
+
+
+@pytest.fixture()
+def client(local_repo, stub_http):
+    """FastAPI TestClient for the web GUI (offline; scans use local fixtures)."""
+    pytest.importorskip("fastapi.testclient")
+    from fastapi.testclient import TestClient
+
+    from starter_pack_scanner.web.app import app
+
+    with TestClient(app) as c:
+        yield c

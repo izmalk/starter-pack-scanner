@@ -12,6 +12,17 @@ from pathlib import Path
 import requests
 
 from starter_pack_scanner import http, site
+from starter_pack_scanner.base import BaseCheck, CheckResult
+from starter_pack_scanner.migration_checks import (
+    AnalyticsCheck,
+    BaseUrlCheck,
+    CanonicalUrlCheck,
+    NotFoundCheck,
+    OverwriteLinksCheck,
+    SitemapConfigCheck,
+    SitemapLiveCheck,
+    SlugCheck,
+)
 from starter_pack_scanner.site import SiteContext
 
 
@@ -39,75 +50,6 @@ def _c(text: str, *codes: str) -> str:
     if not _use_color():
         return text
     return "".join(codes) + text + _RESET
-
-
-# ---------------------------------------------------------------------------
-# Check infrastructure
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class CheckResult:
-    """Result of a single check."""
-
-    check_id: str
-    check_name: str
-    passed: bool
-    message: str
-    details: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict:
-        """Plain-dict form, JSON-serialisable (used by the cache and web UI)."""
-        return {
-            "check_id": self.check_id,
-            "check_name": self.check_name,
-            "passed": self.passed,
-            "message": self.message,
-            "details": list(self.details),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> CheckResult:
-        return cls(
-            check_id=data["check_id"],
-            check_name=data["check_name"],
-            passed=data["passed"],
-            message=data["message"],
-            details=list(data.get("details", [])),
-        )
-
-    def __str__(self) -> str:
-        if self.passed:
-            status = _c("PASS", _GREEN, _BOLD)
-        else:
-            status = _c("FAIL", _RED, _BOLD)
-        lines = [f"[{status}] {self.check_name}: {self.message}"]
-        for detail in self.details:
-            lines.append(f"       {detail}")
-        return "\n".join(lines)
-
-
-class BaseCheck(abc.ABC):
-    """Abstract base class for starter pack checks.
-
-    To create a new check, define a class that inherits from BaseCheck with
-    class attributes ``id``, ``name``, ``description`` and implement ``run``.
-    Then add the class to ``ALL_CHECKS`` at the bottom of this file.
-    """
-
-    id: str
-    name: str
-    description: str
-
-    # Set to True on checks that need the published-site context; the
-    # scanner then builds a SiteContext (network access) before running.
-    requires_site: bool = False
-
-    @abc.abstractmethod
-    def run(
-        self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None
-    ) -> CheckResult:
-        """Run the check against a cloned repository."""
 
 
 # ---------------------------------------------------------------------------
@@ -247,14 +189,44 @@ class VersionCheck(BaseCheck):
 class ReadmeDocsLinkCheck(BaseCheck):
     id = "readme-docs-link"
     name = "README Docs Link"
-    description = "Checks whether the repository README contains a link to the documentation."
+    description = "Checks whether the repository README contains a link to the product's documentation."
 
-    _DOCS_URL_PATTERNS = [
+    _URL_RE = re.compile(r"https?://[^\s\)\"'>]+", re.IGNORECASE)
+
+    # Fallback patterns (used only when the product's docs URL is unknown):
+    # links that look like documentation hosting.
+    _GENERIC_DOCS_PATTERNS = [
         re.compile(r"https?://[^\s\)\"'>]+\.readthedocs\.io\b", re.IGNORECASE),
         re.compile(r"https?://[^\s\)\"'>]+readthedocs-hosted\.com\b", re.IGNORECASE),
         re.compile(r"https?://[^\s\)\"'>]+/docs?\b", re.IGNORECASE),
         re.compile(r"https?://docs\.[^\s\)\"'>]+", re.IGNORECASE),
     ]
+
+    @staticmethod
+    def _expected_docs_urls(docs_dir: Path | None, site_ctx: SiteContext | None) -> list[str]:
+        """Collect the product's own docs URLs: the resolved live-site base
+        URL (includes any --docs-url override) and the conf.py values."""
+        expected: list[str] = []
+        if site_ctx is not None and site_ctx.base_url:
+            expected.append(site_ctx.base_url)
+        if docs_dir is not None:
+            conf = docs_dir / "conf.py"
+            if conf.is_file():
+                conf_text = conf.read_text(errors="replace")
+                for key in ("html_baseurl", "ogp_site_url"):
+                    value = site._conf_value(conf_text, key)
+                    if value:
+                        expected.append(value)
+        return expected
+
+    @staticmethod
+    def _match_prefix(url: str, expected: str) -> bool:
+        """True when *url* points at (or inside) the *expected* docs URL,
+        ignoring an RTD-style version segment."""
+        prefix = site._unversioned_prefix(expected) or expected
+        url = url.rstrip("/")
+        prefix = prefix.rstrip("/")
+        return url == prefix or url.startswith(prefix + "/")
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         readme = _find_readme(repo_root)
@@ -276,23 +248,46 @@ class ReadmeDocsLinkCheck(BaseCheck):
                 message=f"Could not read {readme.name}.",
             )
 
-        found_urls: list[str] = []
-        for pattern in self._DOCS_URL_PATTERNS:
-            found_urls.extend(pattern.findall(content))
+        # Deduplicate all URLs found in the README, preserving order.
+        seen: set[str] = set()
+        urls: list[str] = []
+        for u in self._URL_RE.findall(content):
+            if u not in seen:
+                seen.add(u)
+                urls.append(u)
 
-        if found_urls:
-            seen: set[str] = set()
-            unique: list[str] = []
-            for u in found_urls:
-                if u not in seen:
-                    seen.add(u)
-                    unique.append(u)
+        expected = self._expected_docs_urls(docs_dir, site_ctx)
+        if expected:
+            matching = [
+                u for u in urls
+                if any(self._match_prefix(u, e) for e in expected)
+            ]
+            if matching:
+                return CheckResult(
+                    check_id=self.id,
+                    check_name=self.name,
+                    passed=True,
+                    message=f"Found {len(matching)} link(s) to the product documentation in {readme.name}.",
+                    details=matching[:5],
+                )
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=False,
+                message=f"No link to the product documentation found in {readme.name}.",
+                details=[f"Expected a link to: {e}" for e in expected[:3]],
+            )
+
+        # Fallback: the product's docs URL is unknown — accept generic
+        # documentation-looking links.
+        generic = [u for u in urls if any(p.match(u) for p in self._GENERIC_DOCS_PATTERNS)]
+        if generic:
             return CheckResult(
                 check_id=self.id,
                 check_name=self.name,
                 passed=True,
-                message=f"Found {len(unique)} documentation link(s) in {readme.name}.",
-                details=[u for u in unique[:5]],
+                message=f"Found {len(generic)} documentation link(s) in {readme.name}.",
+                details=generic[:5],
             )
 
         return CheckResult(
@@ -729,4 +724,18 @@ ALL_CHECKS = [
     DocsDomainCheck,
     PageMarkdownCheck,
     PageAgentDirectiveCheck,
+    # URL-migration validation group (RTD -> Canonical domains)
+    SlugCheck,
+    BaseUrlCheck,
+    SitemapConfigCheck,
+    OverwriteLinksCheck,
+    SitemapLiveCheck,
+    CanonicalUrlCheck,
+    NotFoundCheck,
+    AnalyticsCheck,
 ]
+
+
+def checks_by_group(group: str) -> list[type[BaseCheck]]:
+    """Return all check classes belonging to *group*."""
+    return [cls for cls in ALL_CHECKS if getattr(cls, "group", None) == group]

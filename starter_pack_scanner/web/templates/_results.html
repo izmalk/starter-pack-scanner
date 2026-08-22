@@ -23,9 +23,10 @@
       {% if report.docs_url %}<p class="muted">Docs: {{ report.docs_url }}</p>{% endif %}
     </div>
     <div class="report-meta">
-      <p class="timestamp" title="{{ report.scanned_at.isoformat() }}">
+      <time class="timestamp" datetime="{{ report.scanned_at.isoformat() }}"
+            title="{{ report.scanned_at.isoformat() }} (UTC)">
         {{ report.scanned_at.strftime("%Y-%m-%d %H:%M UTC") }}
-      </p>
+      </time>
       {% if cached %}<span class="badge badge-cached">cached</span>{% endif %}
     </div>
   </header>

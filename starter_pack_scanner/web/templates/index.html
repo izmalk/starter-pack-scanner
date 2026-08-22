@@ -9,7 +9,11 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="icon" href="data:,">
   <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js" integrity="sha384-+pxiN6T7yvpryuJmE1gM9PX7yQit15auDb+ZwwvJOd/4be2Cie5/IuVXgQb/S9du" crossorigin="anonymous" defer></script>
   <script src="/static/theme.js" defer></script>
+  <script src="/static/tabs.js" defer></script>
+  <script src="/static/localtime.js" defer></script>
+  <script src="/static/batch-validate.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -54,7 +58,12 @@
   </header>
 
   <main class="container">
-    <section class="card form-card" aria-label="Scan form">
+    <div class="tabs" role="tablist">
+      <button class="tab tab-active" type="button" data-tab="single" role="tab" aria-selected="true">Single scan</button>
+      <button class="tab" type="button" data-tab="batch" role="tab" aria-selected="false">Batch scan</button>
+    </div>
+
+    <section class="card form-card" data-panel="single" aria-label="Scan form">
       <form hx-post="/scan" hx-target="#results" hx-swap="innerHTML" hx-indicator="#scan-spinner">
         <div class="field">
           <label for="repo-url">Repository URL <span class="required" title="Required">*</span></label>
@@ -78,10 +87,46 @@
                    placeholder="Default branch if left empty"
                    autocomplete="off" spellcheck="false">
           </div>
+          <div class="field">
+            <label for="check-group">Check group <span class="optional">optional</span></label>
+            <select id="check-group" name="check_group">
+              <option value="">All checks</option>
+              <option value="migration">URL-migration validation</option>
+            </select>
+          </div>
         </details>
 
         <div class="form-actions">
           <button type="submit" class="btn btn-primary">Scan</button>
+          <span id="scan-spinner" class="spinner htmx-indicator" role="status" aria-label="Scanning"></span>
+          <span class="spinner-text htmx-indicator">Scanning…</span>
+        </div>
+      </form>
+    </section>
+
+    <section class="card form-card" data-panel="batch" hidden aria-label="Batch scan form">
+      <form hx-post="/batch" hx-target="#results" hx-swap="innerHTML" hx-indicator="#scan-spinner">
+        <p class="field-help has-tooltip">
+          Paste a batch YAML file below, or run the example as-is
+          <i class="p-icon--information info-icon" tabindex="0" role="note"
+             aria-label="Batch format details"></i>:
+          <span class="tooltip" role="tooltip">
+            Each entry is a repository URL plus optional settings:
+            <code>branch</code>, <code>docs_url</code>,
+            <code>check_group</code> (e.g. <code>migration</code>),
+            <code>offline</code>, <code>exclude_checks</code>,
+            <code>include_checks</code>. See <code>batch-scan.yml</code> in
+            the repository for the full format.
+          </span>
+        </p>
+        <div class="field">
+          <label for="batch-yaml">Batch YAML <span class="required" title="Required">*</span></label>
+          <textarea id="batch-yaml" name="batch_yaml" rows="14" spellcheck="false"
+                    placeholder="{{ example_batch }}"></textarea>
+          <p class="field-error" id="batch-yaml-error" role="alert" hidden></p>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Batch scan</button>
           <span id="scan-spinner" class="spinner htmx-indicator" role="status" aria-label="Scanning"></span>
           <span class="spinner-text htmx-indicator">Scanning…</span>
         </div>

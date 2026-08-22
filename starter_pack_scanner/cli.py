@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from starter_pack_scanner import cache
+from starter_pack_scanner.batch import BatchFileError, load_batch, run_batch
 from starter_pack_scanner.checks import ALL_CHECKS, _BOLD, _GREEN, _RED, _RESET, _c, _use_color
 from starter_pack_scanner.scanner import scan
 
@@ -20,6 +22,18 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help="Git-cloneable repository URL (e.g. https://github.com/canonical/kafka-operator).",
+    )
+    parser.add_argument(
+        "--batch",
+        default=None,
+        metavar="FILE",
+        help="YAML file with a list of repositories to scan (see batch-scan.yml).",
+    )
+    parser.add_argument(
+        "--group",
+        default=None,
+        metavar="GROUP",
+        help="Only run checks in this group (e.g. 'migration' for URL-migration validation).",
     )
     parser.add_argument(
         "-b",
@@ -85,6 +99,39 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_batch_mode(args: argparse.Namespace) -> int:
+    """Run the scanner over a batch file. Returns the exit code."""
+    try:
+        entries = load_batch(Path(args.batch))
+    except BatchFileError as exc:
+        print(_c(f"Error: {exc}", _RED, _BOLD))
+        return 2
+
+    print(f"Batch scanning {len(entries)} repositor(ies) from {args.batch} ...\n")
+
+    total_failed = 0
+    any_error = False
+    for i, (entry, report) in enumerate(run_batch(entries, use_cache=not args.no_cache), 1):
+        print(_c(f"[{i}/{len(entries)}] {entry.repo}", _BOLD))
+        if report.error:
+            any_error = True
+            print(_c(f"  Error: {report.error}", _RED, _BOLD))
+            print()
+            continue
+        timestamp = report.scanned_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        print(f"  Report generated at {timestamp}")
+        for r in report.results:
+            print(f"  {r}")
+        print(f"\n  Results: {report.passed} passed, {report.failed} failed, "
+              f"{len(report.results)} total\n")
+        total_failed += report.failed
+
+    if any_error:
+        print(_c("Some repositories could not be scanned.", _RED, _BOLD))
+        return 2
+    return 1 if total_failed > 0 else 0
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -101,8 +148,11 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  {c.id:20s} {c.description}")
         sys.exit(0)
 
-    if not args.repo:
-        parser.error("the following argument is required: repo")
+    if not args.repo and not args.batch:
+        parser.error("the following argument is required: repo (or --batch FILE)")
+
+    if args.batch:
+        sys.exit(_run_batch_mode(args))
 
     key = cache.cache_key(
         repo_url=args.repo,
@@ -113,6 +163,21 @@ def main(argv: list[str] | None = None) -> None:
         offline=args.offline,
         seed=args.seed,
     )
+    # Note: check_group affects which checks run; fold it into the key via
+    # the include set when a group is selected.
+    if args.group:
+        from starter_pack_scanner.checks import checks_by_group
+
+        group_ids = {c().id for c in checks_by_group(args.group)}
+        key = cache.cache_key(
+            repo_url=args.repo,
+            branch=args.branch,
+            docs_url=args.docs_url,
+            include_checks=group_ids,
+            exclude_checks=set(args.exclude),
+            offline=args.offline,
+            seed=args.seed,
+        )
 
     report = None
     if not args.no_cache:
@@ -139,6 +204,7 @@ def main(argv: list[str] | None = None) -> None:
             seed=args.seed,
             allow_domains=set(args.allow_domains),
             offline=args.offline,
+            check_group=args.group,
         )
         cache.put(key, report)
 
@@ -146,7 +212,8 @@ def main(argv: list[str] | None = None) -> None:
         print(_c(f"Error: {report.error}", _RED, _BOLD))
         sys.exit(2)
 
-    timestamp = report.scanned_at.strftime("%Y-%m-%d %H:%M:%S %Z") or report.scanned_at.isoformat()
+    # Convert to the system local timezone (no user input or storage needed).
+    timestamp = report.scanned_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     print(f"Report generated at {timestamp}\n")
 
     passed = 0

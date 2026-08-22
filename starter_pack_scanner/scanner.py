@@ -251,6 +251,7 @@ def scan(
     seed: int | None = None,
     allow_domains: set[str] | None = None,
     offline: bool = False,
+    check_group: str | None = None,
 ) -> ScanReport:
     """Clone a repo and run all enabled checks.
 
@@ -265,6 +266,7 @@ def scan(
         allow_domains: Extra domains accepted by the docs-domain check.
         offline: Skip all checks that require network access to the
             published documentation site.
+        check_group: If set, only run checks in this group (e.g. "migration").
 
     Returns:
         A ScanReport. If the repository could not be cloned, ``report.error``
@@ -307,6 +309,8 @@ def scan(
             if check.id in exclude_checks:
                 continue
             if include_checks and check.id not in include_checks:
+                continue
+            if check_group and getattr(check, "group", None) != check_group:
                 continue
             if offline and getattr(check, "requires_site", False):
                 continue

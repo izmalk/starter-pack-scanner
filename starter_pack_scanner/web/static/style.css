@@ -95,8 +95,96 @@ body {
 :root[data-theme="dark"] .theme-icon[data-icon="dark"],
 :root:not([data-theme="light"]):not([data-theme="dark"]) .theme-icon[data-icon="auto"] { display: inline-flex; }
 
+/* ---------- Tabs (single / batch) ---------- */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--vf-color-border-default);
+}
+
+.tab {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 550;
+  background: transparent;
+  color: var(--vf-color-text-muted);
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+.tab:hover { color: var(--vf-color-text-default); }
+.tab:focus-visible { outline: 3px solid var(--vf-color-focus); outline-offset: -3px; }
+
+.tab-active {
+  color: var(--vf-color-text-default);
+  border-bottom-color: var(--vf-color-link-default);
+}
+
 /* ---------- Form ---------- */
 .field { margin-bottom: 1.1rem; }
+
+.field-help {
+  margin: 0 0 1.1rem;
+  font-size: 0.875rem;
+  color: var(--vf-color-text-muted);
+  line-height: 1.5;
+}
+
+.field-help code {
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+  font-size: 0.8rem;
+  background: var(--vf-color-background-code);
+  border-radius: 0.125rem;
+  padding: 0.05rem 0.3rem;
+}
+
+/* Tooltip on the batch help line: shows on hover/focus of the whole line. */
+.field-help.has-tooltip { position: relative; cursor: help; }
+
+/* Vanilla's p-icon--information provides the glyph; just align it inline. */
+.info-icon {
+  margin-left: 0.15rem;
+  vertical-align: -0.15rem;
+}
+
+.tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 20;
+  width: min(28rem, 90vw);
+  background: var(--vf-color-background-default);
+  color: var(--vf-color-text-default);
+  border: 1px solid var(--vf-color-border-default);
+  border-radius: 0.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease;
+}
+
+.field-help.has-tooltip:hover .tooltip,
+.field-help.has-tooltip:focus-within .tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Inline validation error under the batch YAML field. */
+.field-error {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--vf-color-border-negative);
+}
+
+.field textarea.input-invalid {
+  border-color: var(--vf-color-border-negative);
+}
 
 .field label {
   display: block;
@@ -115,7 +203,7 @@ body {
   margin-left: 0.3rem;
 }
 
-.field input {
+.field input, .field select, .field textarea {
   width: 100%;
   font: inherit;
   color: var(--vf-color-text-default);
@@ -127,9 +215,37 @@ body {
   transition: border-color 0.15s ease;
 }
 
-.field input::placeholder { color: var(--vf-color-text-muted); opacity: 0.8; }
+.field textarea {
+  font-family: "Ubuntu Mono variable", "Ubuntu Mono", Consolas, Monaco, Courier, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
 
-.field input:focus {
+/* Greyed-out example content in the batch textarea (native placeholder:
+   disappears on first keystroke, re-appears when emptied). */
+.field textarea::placeholder {
+  color: var(--vf-color-text-muted);
+  opacity: 0.55;
+}
+
+.field select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2.2rem;
+}
+
+:root.is-dark .field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+.field input::placeholder, .field textarea::placeholder {
+  color: var(--vf-color-text-muted);
+  opacity: 0.8;
+}
+
+.field input:focus, .field select:focus, .field textarea:focus {
   outline: none;
   border-color: var(--vf-color-focus);
 }
@@ -357,6 +473,56 @@ body {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ---------- Batch entries ---------- */
+/* Tabs use Vanilla's p-tabs pattern (rectangular, underline-style);
+   only the pass/fail count inside each tab is custom. */
+
+/* Override Vanilla's single-line horizontal scrolling (overflow-x: auto)
+   so many docs sets wrap onto multiple lines instead. */
+.batch-tabs .p-tabs__list {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  padding-bottom: 0;
+}
+
+.batch-tabs { margin-bottom: 1rem; }
+
+.batch-tab-count {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: 0.35rem;
+}
+
+.count-pass-text { color: var(--vf-color-border-positive); }
+.count-fail-text { color: var(--vf-color-border-negative); }
+
+.btn-small {
+  padding: 0.25rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.batch-entry {
+  border: 1px solid var(--vf-color-border-default);
+  border-radius: 0.125rem;
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+  background: var(--vf-color-background-default);
+}
+
+.batch-entry-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.batch-entry-header .repo-link { font-size: 0.9rem; }
+.batch-entry-header .timestamp { margin-left: auto; }
+
+.error-text { color: var(--vf-color-border-negative); }
 
 /* ---------- Small screens ---------- */
 @media (max-width: 480px) {

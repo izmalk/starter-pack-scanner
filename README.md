@@ -1,6 +1,68 @@
 # Starter Pack Scanner
 
-A CLI tool to scan Git repositories that use [Canonical's Sphinx Stack](https://github.com/canonical/sphinx-stack) (ex. Starter Pack) and run a modular set of checks against them.
+A CLI tool (with a local web GUI) to scan Git repositories that use [Canonical's Sphinx Stack](https://github.com/canonical/sphinx-stack) (ex. Starter Pack) and run a modular set of checks against them — including a dedicated **URL-migration validation** group for documentation migrated from Read the Docs hosting to Canonical domains.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Interfaces
+        CLI[CLI<br/>cli.py]
+        GUI[Web GUI<br/>web/app.py]
+        API[Python API]
+    end
+    subgraph Core
+        Batch[batch.py<br/>YAML batch input]
+        Scanner[scanner.py<br/>scan]
+        Cache[(cache.py<br/>on-disk JSON cache)]
+    end
+    subgraph Checks
+        General[checks.py<br/>general checks]
+        Migration[migration_checks.py<br/>URL-migration group]
+        Base[base.py<br/>CheckResult / BaseCheck]
+    end
+    Site[site.py<br/>SiteContext]
+    HTTP[http.py<br/>HTTP + retries]
+
+    CLI --> Batch
+    GUI --> Scanner
+    CLI --> Scanner
+    API --> Scanner
+    Batch --> Scanner
+    Scanner <--> Cache
+    Scanner --> General
+    Scanner --> Migration
+    General --> Base
+    Migration --> Base
+    Scanner --> Site
+    Site --> HTTP
+    General --> HTTP
+    Migration --> HTTP
+```
+
+Scan flow:
+
+```mermaid
+sequenceDiagram
+    participant U as User (CLI/GUI)
+    participant S as scan()
+    participant G as git
+    participant C as Checks
+    participant W as Published docs site
+
+    U->>S: repo URL (+ options)
+    S->>S: validate_repo_url (SSRF guard)
+    S->>G: shallow clone (timeout 120s)
+    G-->>S: repo tree
+    S->>S: detect docs dir (.sphinx/, conf.py, .readthedocs.yaml)
+    opt site checks enabled
+        S->>W: resolve docs URL, fetch llms.txt, sample pages
+        W-->>S: SiteContext
+    end
+    S->>C: run enabled checks (group/include/exclude)
+    C-->>S: CheckResult list
+    S-->>U: ScanReport (timestamp, results, error)
+```
 
 ## Requirements
 
@@ -89,6 +151,49 @@ Extend the list of major documentation domains:
 starter-pack-scanner https://github.com/canonical/kafka-operator --allow-domain example.com
 ```
 
+Run only the URL-migration validation group:
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --group migration
+```
+
+### Batch scanning
+
+Scan multiple repositories from a YAML file (see [`batch-scan.yml`](batch-scan.yml) for a working example):
+
+```bash
+starter-pack-scanner --batch batch-scan.yml
+```
+
+**File format:**
+
+```yaml
+# Optional defaults applied to every entry (each entry can override):
+defaults:
+  branch: null          # default branch if unset
+  docs_url: null        # auto-detect from conf.py if unset
+  check_group: null     # e.g. "migration" to run only that group
+  offline: false        # skip live-site checks
+  exclude_checks: []    # check IDs to skip
+  include_checks: []    # only run these check IDs
+
+repos:
+  # Plain URL shorthand:
+  - https://github.com/canonical/kafka-operator
+
+  # Full form with per-entry options:
+  - repo: https://github.com/canonical/opensearch-operator
+    docs_url: https://canonical.com/opensearch/docs/
+    branch: main
+```
+
+Each entry under `repos` is either a plain URL string or a mapping with a
+required `repo` key plus any of the options above. Unknown keys, invalid
+URLs, unknown check groups, and YAML syntax errors are reported with precise
+messages (exit code 2). Batch results are cached per entry like single scans.
+
+In the web GUI, use the **Batch scan** tab and paste the YAML contents.
+
 ### Caching
 
 Scan reports are cached on disk (one JSON file per scan configuration under
@@ -107,7 +212,9 @@ or the "Re-scan" button in the web GUI.
 
 A minimal local web interface (FastAPI + Jinja2 + HTMX) for running scans
 from the browser: enter a repository URL, optionally the published docs URL
-and a branch, and get a rendered report of all checks.
+and a branch, and get a rendered report of all checks. A **Batch scan** tab
+accepts pasted batch YAML (same format as `--batch`), and the Advanced
+section lets you run only the URL-migration validation group.
 
 ### Start and stop
 
@@ -170,6 +277,10 @@ concerns:
 - Repositories are local `git init` fixtures created in a temp directory.
 - All HTTP traffic (live-site checks) goes through a stubbed `http.get`.
 - The web GUI is tested with FastAPI's `TestClient`.
+- `tests/test_regressions.py` guards against previously fixed bugs:
+  versioned-URL rewriting (RTD-style sites whose llms.txt lists unversioned
+  links), README docs-link false positives, cache-key collisions with
+  `check_group`, FastAPI 422s on empty form fields, and more.
 
 ```bash
 make test          # or: python -m pytest tests/ -v
@@ -198,7 +309,7 @@ redistributed by this project.
 |----|-------------|
 | `docs-dir` | Checks whether the documentation is in the standard `docs/` directory of the repository. |
 | `version` | Checks whether the starter pack version is the latest available. |
-| `readme-docs-link` | Checks whether the repository README contains a link to the documentation. |
+| `readme-docs-link` | Checks whether the repository README contains a link to the product's own documentation (matched against the docs URL from `conf.py`/`--docs-url`; generic `/docs` links to other sites don't count). |
 | `readme-rtd-badge` | Checks whether the repository README contains a Read the Docs badge. |
 | `llms-txt` | Checks that the published documentation serves an `llms.txt` index for AI agents. |
 | `llms-txt-links` | Checks that a sample of links from `llms.txt` resolves to live pages. |
@@ -207,6 +318,27 @@ redistributed by this project.
 | `docs-domain` | Checks that the documentation is published on a major company domain (e.g. `canonical.com`, `ubuntu.com`). |
 | `page-markdown` | Checks that sampled pages serve a Markdown version for AI (page URL + `index.html.md`). |
 | `page-agent-directive` | Checks that sampled pages contain a visually-hidden AI discovery directive (`llms.txt` pointer). |
+
+### URL-migration validation group
+
+Run with `--group migration` (CLI), `check_group: migration` (batch file),
+or the "URL-migration validation" option in the GUI. These checks verify the
+migration of documentation from Read the Docs hosting to Canonical domains,
+following the [RTD-Proxy migration guide](https://documentation.ubuntu.com/rtd-proxy/how-to/migrate/):
+
+| ID | Description |
+|----|-------------|
+| `migration-slug` | Checks that `conf.py` defines a `slug` matching the docs URL path (e.g. `example/docs`). |
+| `migration-baseurl` | Checks that `html_baseurl`/`ogp_site_url` point to the production Canonical domain. |
+| `migration-sitemap-config` | Checks `sitemap_url_scheme = "{link}"` and `sitemap_filename = "doc-sitemap.xml"` in `conf.py`. |
+| `migration-overwrite-links` | Checks that `overwrite_links.js` is registered in `html_js_files` (or present in `_static/js/`). |
+| `migration-sitemap-live` | Checks that a sitemap exists at `/sitemap.xml` or `/doc-sitemap.xml` with production (non-staging) URLs. |
+| `migration-canonical-url` | Checks that sampled pages contain a canonical URL in the HTML `<head>`. |
+| `migration-404` | Checks that an invalid page returns a real HTTP 404 (not a soft 200). |
+| `migration-analytics` | Checks that the GTM script and cookie consent banner appear on sampled pages. |
+
+The first four are repository checks (work offline); the last four are
+live-site checks (need the published docs URL).
 
 The last seven checks are live-site checks: they resolve the published docs URL
 from `conf.py` (`html_baseurl`, following redirects to the final URL), fetch
@@ -233,9 +365,14 @@ to override URL detection.
 
 ## Adding a new check
 
-1. Define a class in `starter_pack_scanner/checks.py` that inherits from `BaseCheck`:
+1. Define a class in `starter_pack_scanner/checks.py` (or a dedicated module
+   like `migration_checks.py` for a new group) that inherits from `BaseCheck`
+   (imported from `starter_pack_scanner.base`):
 
     ```python
+    from starter_pack_scanner.base import BaseCheck, CheckResult
+    from starter_pack_scanner.site import SiteContext
+
     class MyCheck(BaseCheck):
         id = "my-check"
         name = "My Custom Check"
@@ -244,6 +381,10 @@ to override URL detection.
         # Set to True if the check needs the published-site context
         # (network access); the scanner then builds a SiteContext.
         requires_site = False
+
+        # Optional: assign to a group (e.g. "migration") to make the check
+        # selectable via --group / check_group.
+        group = None
 
         def run(
             self,
@@ -269,7 +410,16 @@ to override URL detection.
 
 2. Add it to the `ALL_CHECKS` list at the bottom of `starter_pack_scanner/checks.py`.
 
+The CLI (`--list-checks`), web GUI, and batch mode pick up new checks
+automatically — no interface changes needed.
+
 ## Removing or disabling a check
 
 - **At runtime**: use `--exclude <check-id>` to skip checks.
 - **Permanently**: remove the class from the `ALL_CHECKS` list in `checks.py`.
+
+## For AI agents and contributors
+
+See [`AGENTS.md`](AGENTS.md) for detailed guidance on the repository
+architecture, testing rules (the suite is fully offline), common
+troubleshooting, and conventions.
