@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult, DocsDomainCheck
+from starter_pack_scanner.migration_checks import OldUrlRedirectCheck
 from starter_pack_scanner.site import SiteContext, build_site_context
 
 # Hard cap on a single git clone, so a hanging remote cannot wedge a scan.
@@ -252,6 +253,7 @@ def scan(
     allow_domains: set[str] | None = None,
     offline: bool = False,
     check_group: str | None = None,
+    old_url: str | None = None,
 ) -> ScanReport:
     """Clone a repo and run all enabled checks.
 
@@ -267,6 +269,9 @@ def scan(
         offline: Skip all checks that require network access to the
             published documentation site.
         check_group: If set, only run checks in this group (e.g. "migration").
+        old_url: Pre-migration documentation URL, used by
+            migration-old-url-redirect (auto-derived from conf.py git
+            history when not given).
 
     Returns:
         A ScanReport. If the repository could not be cloned, ``report.error``
@@ -324,6 +329,8 @@ def scan(
         for check_cls in enabled:
             if check_cls is DocsDomainCheck:
                 check: BaseCheck = check_cls(allow_domains)
+            elif check_cls is OldUrlRedirectCheck:
+                check = check_cls(old_url)
             else:
                 check = check_cls()
             results.append(check.run(repo_root, docs_dir, site_ctx))

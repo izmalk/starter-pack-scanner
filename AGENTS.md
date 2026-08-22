@@ -57,6 +57,13 @@ Makefile                 # install / run / serve-web / test / lint / clean
 - **Import rule**: `base.py` holds `CheckResult`/`BaseCheck` to avoid
   circular imports. `checks.py` and `migration_checks.py` both import from
   `base.py`. Never import `checks.py` from a check module at module level.
+- **Shared "unavailable" results**: `base.py` provides `site_unavailable(check,
+  site_ctx)` and `no_pages(check, site_ctx)` — use these instead of writing a
+  per-class `_unavailable()` method.
+- **Checks needing constructor args**: `DocsDomainCheck(allow_domains)` and
+  `OldUrlRedirectCheck(old_url)` take an argument. `scanner.py::scan()`
+  special-cases their instantiation by class identity in an if/elif chain —
+  any new check needing a constructor arg must be added there too.
 
 ### Scan flow
 
@@ -67,8 +74,11 @@ Makefile                 # install / run / serve-web / test / lint / clean
 
 - One JSON file per scan configuration in `~/.cache/starter-pack-scanner/`
   (XDG-aware), keyed by SHA-256 of (repo_url, branch, docs_url, include,
-  exclude, offline, seed). No TTL — refresh explicitly (`--no-cache`,
-  "Re-scan" button, `refresh=true`).
+  exclude, offline, seed, old_url). No TTL — refresh explicitly (`--no-cache`,
+  "Re-scan" button, `refresh=true`). **Every new scan-affecting parameter
+  must be added to `cache.cache_key()` AND both call sites in `cli.py` AND
+  the call site in `batch.py`** — forgetting one lets a re-run silently
+  return a stale cached report.
 - **Gotcha**: `check_group` is not a cache-key parameter. When a group is
   selected, fold its check IDs into `include_checks` for the key (see
   `cli.py` and `web/app.py` for the pattern).
@@ -83,8 +93,9 @@ hostnames must not be private/loopback/link-local. The web server binds
 ## Common tasks
 
 ```bash
-make install-web      # set up .venv with everything
-make test             # run the offline test suite (186 tests)
+make install          # set up .venv with everything (CLI + web GUI)
+make install-cli      # CLI-only install (no web GUI deps)
+make test             # run the offline test suite (225 tests)
 make lint             # compile-check all sources
 make serve-web        # start the GUI at http://127.0.0.1:8765 (aliases: server-web, web)
 make run REPO=https://github.com/canonical/kafka-operator
@@ -98,7 +109,8 @@ starter-pack-scanner --batch batch-scan.yml
 
 Batch file format (YAML): optional `defaults` mapping + `repos` list; each
 entry is a plain URL string or a mapping with `repo` plus any of: `branch`,
-`docs_url`, `check_group`, `offline`, `exclude_checks`, `include_checks`.
+`docs_url`, `check_group`, `offline`, `exclude_checks`, `include_checks`,
+`old_url`.
 Validation errors raise `BatchFileError` with a precise message (CLI prints
 it and exits 2; the GUI shows it inline).
 
@@ -108,9 +120,27 @@ it and exits 2; the GUI shows it inline).
 starter-pack-scanner https://github.com/canonical/kafka-operator --group migration
 ```
 
-The migration group verifies the RTD → Canonical-domain migration process
-(slug, base URLs, sitemap config, overwrite_links.js, live sitemap, canonical
-URLs, 404 behaviour, analytics) per the RTD-Proxy migration guide.
+The migration group (15 checks) verifies the RTD → Canonical-domain migration
+process against the guide's authoritative 7-item production checklist plus
+additional requirements found throughout the guide: slug shape, base URL
+shape (trailing slash + version segment), sitemap config, overwrite_links.js
+content (`rtd_address`/`new_address`), `html_static_path`, live sitemap host
+validation, canonical URL value validation, 404 for both invalid pages and
+invalid versions, analytics (GTM + cookie banner), flyout/PDF host checks,
+flyout version sanity, old-URL redirect, sitemap-index registration,
+supported-URL shape, and RTD/staging link leakage on pages.
+
+The migration guide itself
+(`documentation.ubuntu.com/rtd-proxy/how-to/migrate/`) is behind Canonical
+SSO and can't be fetched directly — use `github_repo`/`github_text_search`
+against `canonical/RTD-Proxy` instead; the guide source is
+`docs/how-to/migrate.rst` and `docs/how-to/validate-configuration.rst`.
+
+`migration_checks.py` uses a `_Conf` dataclass (`_load_conf(docs_dir)`) to
+parse `conf.py` (`.value()`, `.fstring()`, `.is_fstring()`,
+`.list_contains()`, `.list_values()`), and `site.py` helpers `is_staging()`,
+`is_rtd_host()`, `RTD_HOSTS`, `expected_slug_from_url()`,
+`looks_like_version_segment()` for the shape/host validations.
 
 ## Testing rules (important)
 

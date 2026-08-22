@@ -68,26 +68,28 @@ sequenceDiagram
 
 - Python 3.10+
 - Git (available on `PATH`)
-- For the web GUI only: install with the `web` extra (see below)
 
 ## Installation
+
+The default install includes everything — the CLI **and** the web GUI:
 
 ```bash
 cd starter-pack-scanner
 pip install -e .
 ```
 
-Or with the web GUI extras:
+For a minimal, CLI-only install (e.g. in CI, where the web GUI dependencies
+are unnecessary weight), use the `cli` extra:
 
 ```bash
-pip install -e ".[web]"
+pip install -e ".[cli]"
 ```
 
 A `Makefile` is provided for common tasks (`make help` lists them all):
 
 ```bash
-make install      # create .venv and install the CLI
-make install-web  # create .venv and install CLI + web GUI
+make install      # create .venv and install everything (CLI + web GUI)
+make install-cli  # create .venv and install only the CLI dependencies
 make run REPO=https://github.com/canonical/kafka-operator  # run the scanner
 make serve-web    # start the web GUI at http://127.0.0.1:8765
 make test         # run the test suite (offline, no network needed)
@@ -157,6 +159,14 @@ Run only the URL-migration validation group:
 starter-pack-scanner https://github.com/canonical/kafka-operator --group migration
 ```
 
+Check that the pre-migration URL redirects to the new one (auto-derived from
+`conf.py` git history when omitted):
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --group migration \
+  --old-url https://canonical-example.readthedocs-hosted.com/
+```
+
 ### Batch scanning
 
 Scan multiple repositories from a YAML file (see [`batch-scan.yml`](batch-scan.yml) for a working example):
@@ -219,8 +229,8 @@ section lets you run only the URL-migration validation group.
 ### Start and stop
 
 ```bash
-# Install with the web extra (once):
-pip install -e ".[web]"
+# Install (the default install already includes the web GUI):
+pip install -e .
 
 # Start (binds to 127.0.0.1:8765 — local only):
 starter-pack-scanner-web
@@ -322,23 +332,41 @@ redistributed by this project.
 ### URL-migration validation group
 
 Run with `--group migration` (CLI), `check_group: migration` (batch file),
-or the "URL-migration validation" option in the GUI. These checks verify the
-migration of documentation from Read the Docs hosting to Canonical domains,
-following the [RTD-Proxy migration guide](https://documentation.ubuntu.com/rtd-proxy/how-to/migrate/):
+or the "URL-migration validation" option in the GUI. These 15 checks verify
+the migration of documentation from Read the Docs hosting to Canonical
+domains, following the production validation checklist in the
+[RTD-Proxy migration guide](https://documentation.ubuntu.com/rtd-proxy/how-to/migrate/)
+(source: [`canonical/RTD-Proxy`](https://github.com/canonical/RTD-Proxy) —
+the public guide requires Canonical SSO).
+
+**Repository checks** (work offline — inspect `conf.py` and static files):
 
 | ID | Description |
 |----|-------------|
-| `migration-slug` | Checks that `conf.py` defines a `slug` matching the docs URL path (e.g. `example/docs`). |
-| `migration-baseurl` | Checks that `html_baseurl`/`ogp_site_url` point to the production Canonical domain. |
+| `migration-slug` | Checks that `conf.py`'s `slug` has no leading/trailing `/`, no language/version segment, and (when a docs URL is known) matches the published URL path. |
+| `migration-baseurl` | Checks that `html_baseurl`/`ogp_site_url` are production Canonical URLs with a trailing slash (and reference `READTHEDOCS_VERSION` if versioned). |
 | `migration-sitemap-config` | Checks `sitemap_url_scheme = "{link}"` and `sitemap_filename = "doc-sitemap.xml"` in `conf.py`. |
-| `migration-overwrite-links` | Checks that `overwrite_links.js` is registered in `html_js_files` (or present in `_static/js/`). |
-| `migration-sitemap-live` | Checks that a sitemap exists at `/sitemap.xml` or `/doc-sitemap.xml` with production (non-staging) URLs. |
-| `migration-canonical-url` | Checks that sampled pages contain a canonical URL in the HTML `<head>`. |
-| `migration-404` | Checks that an invalid page returns a real HTTP 404 (not a soft 200). |
-| `migration-analytics` | Checks that the GTM script and cookie consent banner appear on sampled pages. |
+| `migration-overwrite-links` | Checks that `overwrite_links.js` is registered in `html_js_files`, and validates its `rtd_address`/`new_address` values. |
+| `migration-static-path` | Checks that `html_static_path` includes `_static`. |
 
-The first four are repository checks (work offline); the last four are
-live-site checks (need the published docs URL).
+**Live-site checks** (need the published docs URL):
+
+| ID | Description |
+|----|-------------|
+| `migration-sitemap-live` | Checks that a sitemap exists at `/sitemap.xml` or `/doc-sitemap.xml`, with production URLs on the resolved host (catches missing/duplicated version segments). |
+| `migration-canonical-url` | Checks that sampled pages' canonical URL in `<head>` matches the production host (not staging or RTD). |
+| `migration-404` | Checks that an invalid page **and** an invalid version segment both return a real HTTP 404 (not a soft 200). |
+| `migration-analytics` | Checks that a GTM script and cookie consent banner appear on sampled pages; notes if the GTM ID differs from the guide's default. |
+| `migration-flyout-pdf` | Checks that the RTD addons/flyout data and any PDF download links point at production hosts, not Read the Docs. |
+| `migration-flyout-versions` | Checks that flyout version names look sensible (no leftover `migrate`/`test`/`tmp` artefacts). |
+| `migration-old-url-redirect` | Checks that the pre-migration URL (auto-derived from `conf.py` git history, or `--old-url`) redirects to the new production URL. |
+| `migration-sitemap-index` | Checks that this docs set's sitemap is registered in the canonical.com/ubuntu.com site-wide sitemap index. |
+| `migration-url-shape` | Checks that the docs URL follows the supported `<product>/docs` placement under the product's marketing page, flagging known content-cache exceptions. |
+| `migration-no-rtd-leakage` | Checks sampled pages for any `href`/`src` still pointing at Read the Docs, `documentation.ubuntu.com`, or a staging host — the single highest-value catch-all for an incomplete migration. |
+
+**Out of scope** (need a browser or credentials the scanner doesn't have):
+visual styling/image rendering, RTD dashboard settings, the Google Analytics
+migration annotation, and the migration tracker spreadsheet.
 
 The last seven checks are live-site checks: they resolve the published docs URL
 from `conf.py` (`html_baseurl`, following redirects to the final URL), fetch

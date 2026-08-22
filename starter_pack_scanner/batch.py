@@ -65,6 +65,7 @@ class BatchEntry:
     offline: bool = False
     exclude_checks: set[str] = field(default_factory=set)
     include_checks: set[str] | None = None
+    old_url: str | None = None
 
     @property
     def short_name(self) -> str:
@@ -91,12 +92,13 @@ class BatchEntry:
             "offline": self.offline,
             "exclude_checks": sorted(self.exclude_checks),
             "include_checks": sorted(self.include_checks) if self.include_checks else None,
+            "old_url": self.old_url,
         }
 
 
 # Keys allowed in an entry (besides "repo").
 _ENTRY_KEYS = {"repo", "branch", "docs_url", "check_group", "offline",
-               "exclude_checks", "include_checks"}
+               "exclude_checks", "include_checks", "old_url"}
 _DEFAULTS_KEYS = _ENTRY_KEYS - {"repo"}
 
 
@@ -201,6 +203,10 @@ def _parse_entry(item: object, index: int, defaults: dict) -> BatchEntry:
         if not isinstance(include, list) or not all(isinstance(e, str) for e in include):
             raise BatchFileError(f"{where}: 'include_checks' must be a list of check IDs.")
 
+    old_url = merged.get("old_url")
+    if old_url is not None and not isinstance(old_url, str):
+        raise BatchFileError(f"{where}: 'old_url' must be a string.")
+
     return BatchEntry(
         repo=repo,
         branch=branch,
@@ -209,6 +215,7 @@ def _parse_entry(item: object, index: int, defaults: dict) -> BatchEntry:
         offline=offline,
         exclude_checks=set(exclude),
         include_checks=set(include) if include is not None else None,
+        old_url=old_url,
     )
 
 
@@ -237,6 +244,7 @@ def run_batch(
             include_checks=include_ids,
             exclude_checks=entry.exclude_checks,
             offline=entry.offline,
+            old_url=entry.old_url,
         )
         report = None
         if use_cache and not refresh:
@@ -250,6 +258,7 @@ def run_batch(
                 docs_url=entry.docs_url,
                 check_group=entry.check_group,
                 offline=entry.offline,
+                old_url=entry.old_url,
             )
             cache.put(key, report)
         results.append((entry, report))

@@ -82,6 +82,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip all checks that require network access to the published docs site.",
     )
     parser.add_argument(
+        "--old-url",
+        default=None,
+        metavar="URL",
+        help="Pre-migration documentation URL, for migration-old-url-redirect "
+             "(auto-derived from conf.py git history otherwise).",
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Bypass the scan cache and always run a fresh scan.",
@@ -162,6 +169,7 @@ def main(argv: list[str] | None = None) -> None:
         exclude_checks=set(args.exclude),
         offline=args.offline,
         seed=args.seed,
+        old_url=args.old_url,
     )
     # Note: check_group affects which checks run; fold it into the key via
     # the include set when a group is selected.
@@ -177,6 +185,7 @@ def main(argv: list[str] | None = None) -> None:
             exclude_checks=set(args.exclude),
             offline=args.offline,
             seed=args.seed,
+            old_url=args.old_url,
         )
 
     report = None
@@ -205,6 +214,7 @@ def main(argv: list[str] | None = None) -> None:
             allow_domains=set(args.allow_domains),
             offline=args.offline,
             check_group=args.group,
+            old_url=args.old_url,
         )
         cache.put(key, report)
 

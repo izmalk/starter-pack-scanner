@@ -17,11 +17,18 @@ from starter_pack_scanner.migration_checks import (
     AnalyticsCheck,
     BaseUrlCheck,
     CanonicalUrlCheck,
+    FlyoutPdfCheck,
+    FlyoutVersionsCheck,
     NotFoundCheck,
+    OldUrlRedirectCheck,
     OverwriteLinksCheck,
+    RtdLeakageCheck,
     SitemapConfigCheck,
+    SitemapIndexCheck,
     SitemapLiveCheck,
     SlugCheck,
+    StaticPathCheck,
+    UrlShapeCheck,
 )
 from starter_pack_scanner.site import SiteContext
 
@@ -729,10 +736,17 @@ ALL_CHECKS = [
     BaseUrlCheck,
     SitemapConfigCheck,
     OverwriteLinksCheck,
+    StaticPathCheck,
     SitemapLiveCheck,
     CanonicalUrlCheck,
     NotFoundCheck,
     AnalyticsCheck,
+    FlyoutPdfCheck,
+    FlyoutVersionsCheck,
+    OldUrlRedirectCheck,
+    SitemapIndexCheck,
+    UrlShapeCheck,
+    RtdLeakageCheck,
 ]
 
 

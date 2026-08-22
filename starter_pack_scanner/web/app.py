@@ -1,8 +1,11 @@
 """Local web GUI for the starter pack scanner (FastAPI + Jinja2 + HTMX).
 
-Run with ``starter-pack-scanner-web`` (installed with the ``web`` extra) or:
+Run with ``starter-pack-scanner-web`` or:
 
     python -m starter_pack_scanner.web.app
+
+The web GUI dependencies are part of the default install; for a CLI-only
+install use ``pip install -e '.[cli]'``.
 
 The server binds to 127.0.0.1 only — it is intended for local use and is
 not protected by any authentication.

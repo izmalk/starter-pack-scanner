@@ -57,6 +57,11 @@ def _unversioned_prefix(base_url: str) -> str | None:
     return f"{parsed.scheme}://{parsed.netloc}/{unversioned_path}/"
 
 
+def unversioned_prefix(base_url: str) -> str | None:
+    """Public wrapper around _unversioned_prefix (used by migration checks)."""
+    return _unversioned_prefix(base_url)
+
+
 def rewrite_versioned(url: str, base_url: str) -> str:
     """Insert the version segment into *url* when it points at the
     unversioned base of a versioned docs site.
@@ -262,3 +267,39 @@ def is_major_domain(url: str, extra_domains: set[str] | None = None) -> bool:
             return False
     allowed = MAJOR_DOMAINS | (extra_domains or set())
     return any(host_matches_domain(host, d) for d in allowed)
+
+
+# Hosts that indicate an unmigrated (or staging) documentation set.
+RTD_HOSTS = ("readthedocs.io", "readthedocs-hosted.com", "documentation.ubuntu.com")
+
+
+def is_staging(url: str) -> bool:
+    """True if *url* points at a staging environment (staging.* host)."""
+    host = urlparse(url).netloc.split(":")[0].lower()
+    return host.startswith("staging.") or host.startswith("www.staging.")
+
+
+def is_rtd_host(url: str) -> bool:
+    """True if *url* points at a Read the Docs / old documentation host."""
+    host = urlparse(url).netloc.split(":")[0].lower()
+    return any(host_matches_domain(host, d) for d in RTD_HOSTS)
+
+
+def expected_slug_from_url(base_url: str) -> str:
+    """Derive the expected conf.py slug from a docs base URL.
+
+    The slug is the URL path after the domain, up to the root of the
+    documentation, excluding language and version segments — e.g.
+    ``https://canonical.com/data/kafka/docs/4/`` → ``data/kafka/docs``.
+    """
+    parsed = urlparse(base_url)
+    segments = [s for s in parsed.path.split("/") if s]
+    # Drop trailing language segment ('en') and version segment ('4', 'latest').
+    while segments and (segments[-1] == "en" or _VERSION_SEGMENT_RE.match(segments[-1])):
+        segments.pop()
+    return "/".join(segments)
+
+
+def looks_like_version_segment(segment: str) -> bool:
+    """True if *segment* looks like an RTD version/language slug (e.g. '4', 'latest')."""
+    return bool(_VERSION_SEGMENT_RE.match(segment))

@@ -6,7 +6,7 @@ PYTHON ?= .venv/bin/python
 PIP = $(PYTHON) -m pip
 VENV_FLAGS ?=
 
-.PHONY: help install install-web run test lint clean serve-web server-web web
+.PHONY: help install install-cli install-web run test lint clean serve-web server-web web
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-][a-zA-Z_ -]*:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -16,19 +16,22 @@ help: ## Show this help
 	$(PYTHON) -m venv $(VENV_FLAGS) .venv 2>/dev/null || python3 -m venv .venv
 	@touch .venv/bin/python
 
-install: .venv/bin/python ## Install the package (CLI only) into .venv
+install: .venv/bin/python ## Install the package (CLI + web GUI) into .venv
 	$(PIP) install -e .
 
-install-web: .venv/bin/python ## Install the package with the web GUI extras
-	$(PIP) install -e '.[web]'
+install-cli: .venv/bin/python ## Install only what the CLI needs (no web GUI deps)
+	$(PIP) install -e '.[cli]'
+
+install-web: .venv/bin/python ## Alias of 'install' (kept for compatibility)
+	$(PIP) install -e .
 
 run: install ## Run the CLI scanner (pass REPO=..., e.g. make run REPO=https://github.com/canonical/kafka-operator)
-	$(PYTHON) -m starter_pack_scanner $(REPO)
+	$(PYTHON) -m starter_pack_scanner
 
-serve-web server-web web: install-web ## Start the local web GUI at http://127.0.0.1:8765
+serve-web server-web web: install ## Start the local web GUI at http://127.0.0.1:8765
 	$(PYTHON) -m starter_pack_scanner.web.app
 
-test: install-web ## Run the test suite (offline; no network required)
+test: install ## Run the test suite (offline; no network required)
 	$(PIP) install -q pytest httpx
 	$(PYTHON) -m pytest tests/ -v
 

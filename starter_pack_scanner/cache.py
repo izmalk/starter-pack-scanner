@@ -36,6 +36,7 @@ def cache_key(
     exclude_checks: set[str] | None = None,
     offline: bool = False,
     seed: int | None = None,
+    old_url: str | None = None,
 ) -> str:
     """Deterministic key for a scan configuration (SHA-256 hex digest)."""
     parts = (
@@ -46,6 +47,7 @@ def cache_key(
         ",".join(sorted(exclude_checks)) if exclude_checks else "",
         "offline" if offline else "online",
         str(seed) if seed is not None else "",
+        (old_url or "").strip().rstrip("/"),
     )
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()
 

@@ -14,6 +14,29 @@ from pathlib import Path
 from starter_pack_scanner.site import SiteContext
 
 
+def site_unavailable(check: "BaseCheck", site_ctx: SiteContext | None) -> CheckResult:
+    """Standard failure result when the published-site context is missing."""
+    details = list(site_ctx.errors) if site_ctx else []
+    return CheckResult(
+        check_id=check.id,
+        check_name=check.name,
+        passed=False,
+        message="Could not resolve the published documentation URL; cannot run this check.",
+        details=details or ["Pass --docs-url to specify the published documentation base URL."],
+    )
+
+
+def no_pages(check: "BaseCheck", site_ctx: SiteContext) -> CheckResult:
+    """Standard failure result when no pages could be sampled."""
+    return CheckResult(
+        check_id=check.id,
+        check_name=check.name,
+        passed=False,
+        message="No documentation pages could be sampled (llms.txt and sitemap.xml unavailable or empty).",
+        details=site_ctx.errors,
+    )
+
+
 @dataclass
 class CheckResult:
     """Result of a single check."""
