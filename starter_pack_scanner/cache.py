@@ -2,8 +2,11 @@
 
 Each cached report is stored as one JSON file under the cache directory
 (``~/.cache/starter-pack-scanner`` by default, honouring ``XDG_CACHE_HOME``).
-There is no TTL: entries are refreshed explicitly via ``--no-cache`` /
-the "Re-scan" button, or wiped with ``--clear-cache``.
+Entries older than :data:`MAX_AGE` (one week) are automatically invalidated
+when read: ``get()`` treats them as a miss and removes the stale file, so the
+next scan re-runs and stores a fresh report. Otherwise there is no TTL:
+entries are refreshed explicitly via ``--no-cache`` / the "Re-scan" button,
+or wiped with ``--clear-cache``.
 """
 
 from __future__ import annotations
@@ -13,11 +16,15 @@ import json
 import os
 import tempfile
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from starter_pack_scanner.scanner import ScanReport
 
 _LOCK = threading.Lock()
+
+#: Cached reports older than this are treated as cache misses (and deleted).
+MAX_AGE = timedelta(days=7)
 
 
 def cache_dir() -> Path:
@@ -53,7 +60,12 @@ def cache_key(
 
 
 def get(key: str) -> ScanReport | None:
-    """Return the cached report for *key*, or None if not cached."""
+    """Return the cached report for *key*, or None if not cached.
+
+    Entries whose ``scanned_at`` is older than :data:`MAX_AGE` are
+    invalidated: the stale file is removed and None is returned, so the
+    caller re-runs the scan.
+    """
     path = cache_dir() / f"{key}.json"
     with _LOCK:
         try:
@@ -61,10 +73,25 @@ def get(key: str) -> ScanReport | None:
         except (OSError, ValueError):
             return None
     try:
-        return ScanReport.from_dict(data)
+        report = ScanReport.from_dict(data)
     except (KeyError, TypeError, ValueError):
         # Corrupt or incompatible cache entry — treat as a miss.
         return None
+    if _is_stale(report):
+        with _LOCK:
+            path.unlink(missing_ok=True)
+        return None
+    return report
+
+
+def _is_stale(report: ScanReport, now: datetime | None = None) -> bool:
+    """True if *report* was scanned more than :data:`MAX_AGE` ago."""
+    now = now or datetime.now(timezone.utc)
+    scanned_at = report.scanned_at
+    if scanned_at.tzinfo is None:
+        # Defensive: entries written before tz-aware timestamps were enforced.
+        scanned_at = scanned_at.replace(tzinfo=timezone.utc)
+    return now - scanned_at > MAX_AGE
 
 
 def put(key: str, report: ScanReport) -> None:

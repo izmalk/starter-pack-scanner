@@ -233,8 +233,10 @@ shows the timestamp it was generated at.
   the cached entry).
 - `--clear-cache` — delete all cached reports and exit.
 
-There is no automatic expiry: refresh a report explicitly with `--no-cache`
-or the "Re-scan" button in the web GUI.
+Cached reports expire automatically after one week: a stale entry is
+treated as a cache miss (and removed), so the next scan re-runs and stores a
+fresh report. To refresh sooner, use `--no-cache` or the "Re-scan" button in
+the web GUI.
 
 ## Web GUI
 
@@ -392,7 +394,7 @@ the public guide requires Canonical SSO).
 | `migration-old-url-redirect` | Checks that the pre-migration URL (auto-derived from `conf.py` git history, or `--old-url`) redirects to the new production URL. |
 | `migration-sitemap-index` | Checks that this docs set's sitemap is registered in the canonical.com/ubuntu.com site-wide sitemap index. |
 | `migration-url-shape` | Checks that the docs URL follows the supported `<product>/docs` placement under the product's marketing page, flagging known content-cache exceptions. |
-| `migration-no-rtd-leakage` | Checks sampled pages for any `href`/`src` still pointing at Read the Docs, `documentation.ubuntu.com`, or a staging host — the single highest-value catch-all for an incomplete migration. |
+| `migration-no-rtd-leakage` | Checks sampled pages for `href`/`src` links to **this docs set's own** old RTD/`documentation.ubuntu.com` location or staging hosts — links to *other* products' docs on those hosts (intersphinx, related guides) are legitimate and not flagged. |
 
 **Out of scope** (need a browser or credentials the scanner doesn't have):
 visual styling/image rendering, RTD dashboard settings, the Google Analytics

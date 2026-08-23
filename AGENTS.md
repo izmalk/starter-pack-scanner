@@ -89,7 +89,9 @@ driven by it; CLI/API callers ignore it.
 
 - One JSON file per scan configuration in `~/.cache/starter-pack-scanner/`
   (XDG-aware), keyed by SHA-256 of (repo_url, branch, docs_url, include,
-  exclude, offline, seed, old_url). No TTL — refresh explicitly (`--no-cache`,
+  exclude, offline, seed, old_url). Entries older than one week
+  (`cache.MAX_AGE`) are auto-invalidated on read — `cache.get()` deletes the
+  stale file and returns a miss. Refresh explicitly (`--no-cache`,
   "Re-scan" button, `refresh=true`). **Every new scan-affecting parameter
   must be added to `cache.cache_key()` AND both call sites in `cli.py` AND
   the call site in `batch.py`** — forgetting one lets a re-run silently
@@ -144,6 +146,18 @@ validation, canonical URL value validation, 404 for both invalid pages and
 invalid versions, analytics (GTM + cookie banner), flyout/PDF host checks,
 flyout version sanity, old-URL redirect, sitemap-index registration,
 supported-URL shape, and RTD/staging link leakage on pages.
+
+Version segments are treated as an **open set**: Read the Docs derives them
+from the version *name* (an RTD alias like `latest`/`stable`/`default`, or a
+branch/tag name like `main`, `24.04`, `3.6-lts`). Never assume only numeric
+segments — LXD publishes at `/lxd/docs/default/`. Likewise, the production
+requirements accept the sitemap at either `/sitemap.xml` or `/doc-sitemap.xml`.
+
+Version segments are treated as an **open set**: Read the Docs derives them
+from the version *name* (an RTD alias like `latest`/`stable`/`default`, or a
+branch/tag name like `main`, `24.04`, `3.6-lts`). Never assume only numeric
+segments — LXD publishes at `/lxd/docs/default/`. Likewise, the production
+requirements accept the sitemap at either `/sitemap.xml` or `/doc-sitemap.xml`.
 
 The migration guide itself
 (`documentation.ubuntu.com/rtd-proxy/how-to/migrate/`) is behind Canonical

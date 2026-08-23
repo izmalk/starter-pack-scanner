@@ -209,18 +209,20 @@ class TestRunBatch:
 
         key = cache.cache_key(repo_url=local_repo, offline=True)
         report = cache.get(key)
-        report.scanned_at = report.scanned_at.replace(year=2000)
+        # Mark the entry with a distinctive (but recent, so it survives the
+        # one-week TTL) timestamp to detect a cache hit.
+        report.scanned_at = report.scanned_at.replace(microsecond=123456)
         cache.put(key, report)
 
         results = run_batch(entries)
-        assert results[0][1].scanned_at.year == 2000  # served from cache
+        assert results[0][1].scanned_at.microsecond == 123456  # served from cache
 
     def test_run_batch_refresh_bypasses_cache(self, tmp_path, monkeypatch, local_repo):
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
         entries = [BatchEntry(repo=local_repo, offline=True)]
         run_batch(entries)
         results = run_batch(entries, refresh=True)
-        assert results[0][1].scanned_at.year != 2000
+        assert results[0][1].scanned_at.microsecond != 123456
 
     def test_run_batch_invalid_repo(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))

@@ -37,10 +37,42 @@ _MD_LINK_RE = re.compile(r"\[[^\]]*\]\((\S+?)\)")
 _SITEMAP_LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
 
 # Files that are site-wide indexes, not individual documentation pages.
-_INDEX_FILES = {"llms.txt", "llms-full.txt", "sitemap.xml", "genindex", "search"}
+_INDEX_FILES = {"llms.txt", "llms-full.txt", "sitemap.xml", "doc-sitemap.xml", "genindex", "search", "404"}
 
-# RTD-style version segments: "4", "1.5", "v2", "latest", "stable".
-_VERSION_SEGMENT_RE = re.compile(r"^(v?\d+(\.\d+)*|latest|stable)$", re.IGNORECASE)
+# RTD-style version segments.
+#
+# Read the Docs derives the URL version segment from the *version name*, which
+# is either an alias RTD creates itself ('latest', 'stable') or the name of the
+# branch/tag the version is built from. Teams therefore publish under a wide
+# range of segments — e.g. LXD uses 'default', others use '4', '1.5', 'v2',
+# '24.04', '3.6-lts', 'main'. Enumerating only numbers + latest/stable would
+# mis-classify those as part of the docs path (breaking slug derivation, the
+# unversioned-prefix logic and the invalid-version 404 probe), so match both
+# version-like shapes and the common non-numeric aliases.
+
+# Numeric/dotted versions, optional 'v' prefix and optional qualifier suffix:
+# "4", "1.5", "v2", "24.04", "3.6-lts", "2.0.0-rc1", "1.5.x".
+_VERSION_NUMBER_RE = re.compile(r"^v?\d+(?:\.\d+)*(?:[-.][A-Za-z0-9]+)*$", re.IGNORECASE)
+
+# Non-numeric version names commonly used as the published version segment.
+_VERSION_ALIASES = frozenset(
+    {
+        "latest", "stable", "default", "current",
+        "main", "master", "trunk",
+        "dev", "devel", "development", "edge", "next",
+    }
+)
+
+# Language segments RTD may insert before the version (e.g. '/en/latest/').
+_LANGUAGE_SEGMENTS = frozenset({"en", "en-gb", "en-us"})
+
+
+def _is_version_segment(segment: str) -> bool:
+    """True if *segment* looks like an RTD-published version segment."""
+    value = segment.strip().lower()
+    if not value:
+        return False
+    return value in _VERSION_ALIASES or bool(_VERSION_NUMBER_RE.match(value))
 
 
 def _unversioned_prefix(base_url: str) -> str | None:
@@ -51,7 +83,7 @@ def _unversioned_prefix(base_url: str) -> str | None:
     """
     parsed = urlparse(base_url)
     segments = [s for s in parsed.path.split("/") if s]
-    if not segments or not _VERSION_SEGMENT_RE.match(segments[-1]):
+    if not segments or not _is_version_segment(segments[-1]):
         return None
     unversioned_path = "/".join(segments[:-1])
     return f"{parsed.scheme}://{parsed.netloc}/{unversioned_path}/"
@@ -174,12 +206,18 @@ def parse_llms_txt(text: str) -> list[str]:
 
 
 def fetch_sitemap_urls(base_url: str) -> list[str]:
-    """Fetch sitemap.xml under *base_url* and return page URLs."""
-    url = urljoin(base_url, "sitemap.xml")
-    resp, _error = http.get(url)
-    if resp is None or resp.status_code >= 400:
-        return []
-    return _SITEMAP_LOC_RE.findall(resp.text)
+    """Fetch the docs sitemap under *base_url* and return page URLs.
+
+    The migration guide sets ``sitemap_filename = "doc-sitemap.xml"``, but
+    the production requirements accept either name (``/sitemap.xml`` or
+    ``/doc-sitemap.xml``), so try both.
+    """
+    for name in ("doc-sitemap.xml", "sitemap.xml"):
+        url = urljoin(base_url, name)
+        resp, _error = http.get(url)
+        if resp is not None and resp.status_code < 400 and resp.text.strip():
+            return _SITEMAP_LOC_RE.findall(resp.text)
+    return []
 
 
 def sample_pages(urls: list[str], n: int = SAMPLE_SIZE, seed: int | None = None) -> list[str]:
@@ -302,12 +340,21 @@ def expected_slug_from_url(base_url: str) -> str:
     """
     parsed = urlparse(base_url)
     segments = [s for s in parsed.path.split("/") if s]
-    # Drop trailing language segment ('en') and version segment ('4', 'latest').
-    while segments and (segments[-1] == "en" or _VERSION_SEGMENT_RE.match(segments[-1])):
+    # Drop trailing language segment ('en') and version segment
+    # ('4', 'latest', 'default', …) — the slug is the docs root only.
+    while segments and (
+        segments[-1].lower() in _LANGUAGE_SEGMENTS or _is_version_segment(segments[-1])
+    ):
         segments.pop()
     return "/".join(segments)
 
 
 def looks_like_version_segment(segment: str) -> bool:
-    """True if *segment* looks like an RTD version/language slug (e.g. '4', 'latest')."""
-    return bool(_VERSION_SEGMENT_RE.match(segment))
+    """True if *segment* looks like an RTD version slug (e.g. '4', 'latest',
+    'default', '24.04', '3.6-lts')."""
+    return _is_version_segment(segment)
+
+
+def is_language_segment(segment: str) -> bool:
+    """True if *segment* is an RTD language slug (e.g. 'en', 'en-gb')."""
+    return segment.strip().lower() in _LANGUAGE_SEGMENTS

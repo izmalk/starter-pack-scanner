@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from starter_pack_scanner import cache
 from starter_pack_scanner.checks import CheckResult
@@ -97,4 +97,36 @@ class TestCacheOperations:
         monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
         key = cache.cache_key("https://example.com/repo")
         (cache.cache_dir() / f"{key}.json").write_text('{"unexpected": true}')
+        assert cache.get(key) is None
+
+
+class TestCacheExpiry:
+    def test_fresh_entry_is_served(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        key = cache.cache_key("https://example.com/repo")
+        cache.put(key, make_report(scanned_at=datetime.now(timezone.utc)))
+        assert cache.get(key) is not None
+
+    def test_stale_entry_is_miss_and_removed(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        key = cache.cache_key("https://example.com/repo")
+        old = datetime.now(timezone.utc) - cache.MAX_AGE - timedelta(seconds=1)
+        cache.put(key, make_report(scanned_at=old))
+        assert cache.get(key) is None
+        # The stale file must be deleted, not just ignored.
+        assert not (cache.cache_dir() / f"{key}.json").exists()
+
+    def test_entry_just_under_max_age_is_served(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        key = cache.cache_key("https://example.com/repo")
+        # 1s inside the limit, to avoid a microsecond race between put and get.
+        edge = datetime.now(timezone.utc) - cache.MAX_AGE + timedelta(seconds=1)
+        cache.put(key, make_report(scanned_at=edge))
+        assert cache.get(key) is not None
+
+    def test_naive_timestamp_treated_as_utc(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+        key = cache.cache_key("https://example.com/repo")
+        old_naive = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=8)
+        cache.put(key, make_report(scanned_at=old_naive))
         assert cache.get(key) is None

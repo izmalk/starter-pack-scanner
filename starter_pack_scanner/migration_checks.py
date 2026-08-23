@@ -261,15 +261,17 @@ class BaseUrlCheck(BaseCheck):
     )
     group = MIGRATION_GROUP
 
-    _PRODUCTION_HOSTS = ("canonical.com", "ubuntu.com", "juju.is", "charmhub.io",
-                         "snapcraft.io", "maas.io", "microk8s.io", "anbox-cloud.io")
-
     def _check_value(self, name: str, value: str, is_fstring: bool) -> list[str]:
         problems = []
         if any(rtd in value for rtd in site.RTD_HOSTS):
             problems.append(f"{name} still points at a Read the Docs / RTD-proxy host: {value}")
-        elif not any(host in value for host in self._PRODUCTION_HOSTS):
-            problems.append(f"{name} does not point to a production Canonical domain: {value}")
+        else:
+            # Compare the parsed host against the major-domains set (shared
+            # with the general checks and extendable via --allow-domain),
+            # not a hardcoded substring list.
+            host = urlparse(value).netloc.split(":")[0]
+            if not host or not site.is_major_domain(value):
+                problems.append(f"{name} does not point to a production Canonical domain: {value}")
         if is_fstring:
             if not value.endswith("/"):
                 problems.append(f"{name} must end with a trailing slash (after the version segment).")
@@ -309,6 +311,31 @@ class BaseUrlCheck(BaseCheck):
         if ogp:
             problems += self._check_value("ogp_site_url", ogp, ogp_is_f)
 
+        # Versioned docs must interpolate the version into the base URL
+        # (migrate.rst: f-string over READTHEDOCS_VERSION; some projects
+        # substitute a {placeholder} via html_context instead — both vary
+        # with the version, which is what matters). A versioned site whose
+        # conf.py hardcodes an unversioned base emits broken links in
+        # llms.txt/sitemap.xml — the exact Kafka bug.
+        if site_ctx is not None and site_ctx.available and site_ctx.base_url:
+            versioned = site.unversioned_prefix(site_ctx.base_url) is not None
+            if versioned:
+                for name, value, is_f in (
+                    ("html_baseurl", baseurl, baseurl_is_f),
+                    ("ogp_site_url", ogp, ogp_is_f),
+                ):
+                    if not value:
+                        continue
+                    has_placeholder = bool(re.search(r"\{[^}]+\}", value))
+                    has_literal_version = site.unversioned_prefix(value.rstrip("/") + "/") is not None
+                    if not is_f and not has_placeholder and not has_literal_version:
+                        problems.append(
+                            f"{name} is a plain URL but the docs site is versioned "
+                            f"({site_ctx.base_url}); build it as an f-string over "
+                            "READTHEDOCS_VERSION (or a {version} placeholder) so "
+                            "emitted links carry the version segment."
+                        )
+
         if problems:
             return CheckResult(
                 check_id=self.id, check_name=self.name, passed=False,
@@ -329,9 +356,9 @@ class SitemapConfigCheck(BaseCheck):
     recommendation = (
         "Set both in `conf.py`: "
         "1. sitemap_url_scheme = \"{link}\" "
-        "2. sitemap_filename = \"doc-sitemap.xml\" "
-        "Omitting the filename leaves the sphinx-sitemap default (sitemap.xml), "
-        "which deviates from the migration guide's convention."
+        "2. sitemap_filename = \"doc-sitemap.xml\" (the guide's convention; "
+        "the plain sphinx-sitemap default `sitemap.xml` also meets the "
+        "production requirements, but a different name does not)."
     )
     group = MIGRATION_GROUP
 
@@ -346,21 +373,37 @@ class SitemapConfigCheck(BaseCheck):
         filename = conf.value("sitemap_filename")
 
         problems = []
+        notes = []
         if scheme != "{link}":
-            problems.append(f"sitemap_url_scheme is '{scheme}' (expected '{{link}}').")
-        if filename != "doc-sitemap.xml":
-            problems.append(f"sitemap_filename is '{filename}' (expected 'doc-sitemap.xml').")
+            problems.append(f"sitemap_url_scheme is '{scheme}' (expected '{{{{link}}}}').")
+        if filename is None:
+            notes.append(
+                "sitemap_filename is not set; the sphinx-sitemap default "
+                "(sitemap.xml) still meets the production requirements, but the "
+                "migration guide recommends doc-sitemap.xml."
+            )
+        elif filename not in ("doc-sitemap.xml", "sitemap.xml"):
+            problems.append(
+                f"sitemap_filename is '{filename}' (expected 'doc-sitemap.xml' or 'sitemap.xml')."
+            )
 
         if problems:
             return CheckResult(
                 check_id=self.id, check_name=self.name, passed=False,
                 message="Sitemap configuration does not match the migration guide.",
-                details=problems,
+                details=problems + notes,
+            )
+        details = [f"sitemap_url_scheme: {scheme}", f"sitemap_filename: {filename}"] + notes
+        if notes:
+            return CheckResult(
+                check_id=self.id, check_name=self.name, passed=True,
+                message="Sitemap configuration meets the production requirements (with a note).",
+                details=details,
             )
         return CheckResult(
             check_id=self.id, check_name=self.name, passed=True,
             message="Sitemap configuration matches the migration guide.",
-            details=[f"sitemap_url_scheme: {scheme}", f"sitemap_filename: {filename}"],
+            details=details,
         )
 
 
@@ -812,7 +855,7 @@ class FlyoutVersionsCheck(BaseCheck):
     group = MIGRATION_GROUP
     requires_site = True
 
-    _ARTEFACT_RE = re.compile(r"(migrate|migration|^test$|^tmp$|^temp$|-main$)", re.IGNORECASE)
+    _ARTEFACT_RE = re.compile(r"(migrate|migration|^test$|^tmp$|^temp$)", re.IGNORECASE)
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         if site_ctx is None or not site_ctx.available:
@@ -1009,7 +1052,9 @@ class UrlShapeCheck(BaseCheck):
                 message=f"Documentation is not published on canonical.com or ubuntu.com ({host}).",
             )
 
-        while segments and (segments[-1] == "en" or site.looks_like_version_segment(segments[-1])):
+        while segments and (
+            site.is_language_segment(segments[-1]) or site.looks_like_version_segment(segments[-1])
+        ):
             segments.pop()
 
         if not segments or segments[-1] != "docs":
@@ -1040,23 +1085,110 @@ class UrlShapeCheck(BaseCheck):
 class RtdLeakageCheck(BaseCheck):
     id = "migration-no-rtd-leakage"
     name = "Migration: No RTD Leakage"
-    description = "Checks that sampled pages contain no links to Read the Docs / documentation.ubuntu.com / staging hosts."
+    description = "Checks that sampled pages contain no links to this docs set's old RTD/documentation.ubuntu.com location or staging hosts."
     recommendation = (
         "Links still point at the old host. Check `overwrite_links.js` is in "
         "`html_js_files` with correct `rtd_address`/`new_address`, and grep the "
-        "sources for hardcoded RTD URLs (`grep -r readthedocs docs/`). Intersphinx "
-        "targets pointing at other RTD-hosted projects are expected and fine."
+        "sources for hardcoded RTD URLs (`grep -r readthedocs docs/`). Links to "
+        "OTHER products' docs on documentation.ubuntu.com / readthedocs-hosted.com "
+        "(e.g. intersphinx targets) are expected and fine."
     )
     group = MIGRATION_GROUP
     requires_site = True
 
     _HREF_SRC_RE = re.compile(r'(?:href|src)=["\']([^"\']+)["\']', re.IGNORECASE)
+    _RTD_ADDR_IN_JS_RE = re.compile(
+        r"""(?:rtd_address|old_address|oldDomain|old_domain)\s*=\s*['"]([^'"]+)['"]"""
+    )
+
+    @staticmethod
+    def _own_old_specs(
+        repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext
+    ) -> list[tuple[str | None, str | None]]:
+        """(host, first_path_segment) specs identifying THIS docs set's old
+        location. A link is only a leak when it points at this product's own
+        old home — documentation.ubuntu.com and readthedocs-hosted.com also
+        host every OTHER product's docs, and cross-product links (intersphinx,
+        related guides) are legitimate. Sources, most specific first:
+
+        1. ``rtd_address`` in overwrite_links.js → (old_host, None): any path
+           on the product's dedicated old RTD host.
+        2. The old URL from conf.py git history → (old_host, first_segment).
+        3. The product segment of the current docs path → (None, product):
+           that first path segment on any RTD host.
+        """
+        specs: list[tuple[str | None, str | None]] = []
+
+        # 1. rtd_address from the overwrite script (dedicated old host).
+        if docs_dir is not None:
+            for js in docs_dir.rglob("*.js"):
+                if "overwrite" not in js.name.lower():
+                    continue
+                try:
+                    text = js.read_text(errors="replace")
+                except OSError:
+                    continue
+                match = RtdLeakageCheck._RTD_ADDR_IN_JS_RE.search(text)
+                if match:
+                    host = urlparse("https://" + match.group(1).strip("/ ")).netloc
+                    if host:
+                        specs.append((host, None))
+
+        # 2. Old URL from conf.py git history (host + first path segment).
+        old_url = _derive_old_url(repo_root, docs_dir)
+        if old_url:
+            parsed = urlparse(old_url)
+            first_segment = parsed.path.strip("/").split("/")[0] if parsed.path.strip("/") else None
+            if parsed.netloc:
+                specs.append((parsed.netloc, first_segment or None))
+
+        # 3. Product segment of the current docs path: canonical.com/data/
+        # kafka/docs/ → the product is 'kafka', so documentation.ubuntu.com/
+        # kafka/... would be this set's old location.
+        base_path = urlparse(site_ctx.base_url or "").path.strip("/")
+        if base_path:
+            segments = base_path.split("/")
+            if segments and segments[-1] == "docs":
+                segments = segments[:-1]
+            if segments:
+                specs.append((None, segments[-1]))
+
+        return specs
+
+    @staticmethod
+    def _is_own_leak(href: str, specs: list[tuple[str | None, str | None]]) -> bool:
+        """True when *href* points at this docs set's old location."""
+        if site.is_staging(href):
+            return True  # staging links are always a leak
+        if not site.is_rtd_host(href):
+            return False
+        if not specs:
+            # Cannot attribute the old location — fall back to flagging any
+            # RTD-host link (previous behaviour).
+            return True
+        parsed = urlparse(href)
+        href_host = parsed.netloc
+        href_first = parsed.path.strip("/").split("/")[0] if parsed.path.strip("/") else ""
+        for host, segment in specs:
+            if host is not None:
+                host_ok = href_host == host or href_host.endswith("." + host)
+                if not host_ok:
+                    continue
+                if segment is None or href_first == segment:
+                    return True
+            else:
+                # Any RTD host with the product's first path segment.
+                if segment and href_first == segment:
+                    return True
+        return False
 
     def run(self, repo_root: Path, docs_dir: Path | None, site_ctx: SiteContext | None = None) -> CheckResult:
         if site_ctx is None or not site_ctx.available:
             return site_unavailable(self, site_ctx)
         if not site_ctx.pages:
             return no_pages(self, site_ctx)
+
+        specs = self._own_old_specs(repo_root, docs_dir, site_ctx)
 
         details: list[str] = []
         leaks = 0
@@ -1069,7 +1201,7 @@ class RtdLeakageCheck(BaseCheck):
                 continue
             found = set()
             for href in self._HREF_SRC_RE.findall(resp.text):
-                if site.is_rtd_host(href) or site.is_staging(href):
+                if self._is_own_leak(href, specs):
                     found.add(href)
             if found:
                 leaks += len(found)
@@ -1080,12 +1212,12 @@ class RtdLeakageCheck(BaseCheck):
         if leaks:
             return CheckResult(
                 check_id=self.id, check_name=self.name, passed=False,
-                message=f"Found {leaks} link(s) to RTD/old/staging hosts across sampled pages.",
+                message=f"Found {leaks} link(s) to this docs set's old RTD/staging location across sampled pages.",
                 details=details,
             )
         return CheckResult(
             check_id=self.id, check_name=self.name, passed=True,
-            message="No links to RTD/old/staging hosts found on sampled pages.",
+            message="No links to this docs set's old RTD/staging location found on sampled pages.",
             details=details,
         )
 

@@ -100,6 +100,64 @@ class TestBaseUrlCheck:
         result = BaseUrlCheck().run(repo, docs)
         assert not result.passed
 
+    def test_versioned_site_requires_version_in_baseurl(self, tmp_path):
+        """The Kafka bug: a versioned site whose conf.py hardcodes an
+        unversioned html_baseurl emits broken llms.txt/sitemap links."""
+        conf = (
+            "html_baseurl = 'https://canonical.com/example/docs/'\n"
+            "ogp_site_url = 'https://canonical.com/example/docs/'\n"
+        )
+        repo, docs = make_conf_repo(tmp_path, conf)
+        ctx = SiteContext(base_url="https://canonical.com/example/docs/4/")
+        result = BaseUrlCheck().run(repo, docs, ctx)
+        assert not result.passed
+        assert any("READTHEDOCS_VERSION" in d for d in result.details)
+
+    def test_versioned_site_with_fstring_passes(self, tmp_path):
+        conf = (
+            "import os\n"
+            "html_baseurl = f\"https://canonical.com/example/docs/{os.environ.get('READTHEDOCS_VERSION', 'local')}/\"\n"
+            "ogp_site_url = f\"https://canonical.com/example/docs/{os.environ.get('READTHEDOCS_VERSION', 'local')}/\"\n"
+        )
+        repo, docs = make_conf_repo(tmp_path, conf)
+        ctx = SiteContext(base_url="https://canonical.com/example/docs/4/")
+        result = BaseUrlCheck().run(repo, docs, ctx)
+        assert result.passed
+
+    def test_versioned_site_with_literal_version_passes(self, tmp_path):
+        # A plain URL that already carries the version segment is fine too.
+        conf = (
+            "html_baseurl = 'https://canonical.com/example/docs/4/'\n"
+            "ogp_site_url = 'https://canonical.com/example/docs/4/'\n"
+        )
+        repo, docs = make_conf_repo(tmp_path, conf)
+        ctx = SiteContext(base_url="https://canonical.com/example/docs/4/")
+        result = BaseUrlCheck().run(repo, docs, ctx)
+        assert result.passed
+
+    def test_versioned_site_with_placeholder_passes(self, tmp_path):
+        # LXD-style: plain string with a {version_slug} placeholder
+        # substituted via html_context — varies with the version, so OK.
+        conf = (
+            "html_baseurl = 'https://canonical.com/example/docs/{version_slug}/'\n"
+            "ogp_site_url = 'https://canonical.com/example/docs/{version_slug}/'\n"
+        )
+        repo, docs = make_conf_repo(tmp_path, conf)
+        ctx = SiteContext(base_url="https://canonical.com/example/docs/default/")
+        result = BaseUrlCheck().run(repo, docs, ctx)
+        assert result.passed
+
+    def test_unversioned_site_plain_url_passes(self, tmp_path):
+        # No version segment in the live base → plain URL is correct.
+        conf = (
+            "html_baseurl = 'https://canonical.com/example/docs/'\n"
+            "ogp_site_url = 'https://canonical.com/example/docs/'\n"
+        )
+        repo, docs = make_conf_repo(tmp_path, conf)
+        ctx = SiteContext(base_url="https://canonical.com/example/docs/")
+        result = BaseUrlCheck().run(repo, docs, ctx)
+        assert result.passed
+
 
 class TestSitemapConfigCheck:
     def test_correct_config(self, tmp_path):
@@ -118,7 +176,22 @@ class TestSitemapConfigCheck:
         assert not result.passed
 
     def test_missing_filename(self, tmp_path):
+        # The production requirements accept either sitemap name; a missing
+        # filename (sphinx-sitemap default sitemap.xml) passes with a note.
         conf = 'sitemap_url_scheme = "{link}"\n'
+        repo, docs = make_conf_repo(tmp_path, conf)
+        result = SitemapConfigCheck().run(repo, docs)
+        assert result.passed
+        assert any("doc-sitemap.xml" in d for d in result.details)
+
+    def test_explicit_sitemap_xml_passes(self, tmp_path):
+        conf = 'sitemap_url_scheme = "{link}"\nsitemap_filename = "sitemap.xml"\n'
+        repo, docs = make_conf_repo(tmp_path, conf)
+        result = SitemapConfigCheck().run(repo, docs)
+        assert result.passed
+
+    def test_wrong_filename_fails(self, tmp_path):
+        conf = 'sitemap_url_scheme = "{link}"\nsitemap_filename = "my-sitemap.xml"\n'
         repo, docs = make_conf_repo(tmp_path, conf)
         result = SitemapConfigCheck().run(repo, docs)
         assert not result.passed
@@ -635,6 +708,18 @@ class TestUrlShapeCheck:
         result = UrlShapeCheck().run(Path("."), None, ctx)
         assert result.passed
 
+    def test_lxd_default_segment_passes(self):
+        # LXD publishes at /lxd/docs/default/ — 'default' is a version
+        # segment, not part of the docs path.
+        ctx = _site_ctx("https://canonical.com/lxd/docs/default/")
+        result = UrlShapeCheck().run(Path("."), None, ctx)
+        assert result.passed
+
+    def test_language_and_version_stripped(self):
+        ctx = _site_ctx("https://canonical.com/example/docs/en/latest/")
+        result = UrlShapeCheck().run(Path("."), None, ctx)
+        assert result.passed
+
     def test_non_docs_path_fails(self):
         ctx = _site_ctx("https://canonical.com/data/kafka/")
         result = UrlShapeCheck().run(Path("."), None, ctx)
@@ -663,14 +748,47 @@ class TestRtdLeakageCheck:
         result = RtdLeakageCheck().run(Path("."), None, _site_ctx())
         assert result.passed
 
-    def test_rtd_href_fails(self, stub_http):
+    def test_own_old_location_fails(self, stub_http):
+        # documentation.ubuntu.com/<this product>/... is this set's old home.
         stub_http.mapping = {
             "example/docs/a/": StubResponse(
                 status_code=200,
-                text='<html><body><a href="https://canonical-example.readthedocs-hosted.com/old/">old</a></body></html>',
+                text='<html><body><a href="https://documentation.ubuntu.com/example/how-to/">old</a></body></html>',
             ),
         }
         result = RtdLeakageCheck().run(Path("."), None, _site_ctx())
+        assert not result.passed
+
+    def test_other_products_docs_pass(self, stub_http):
+        # Kafka-style false positive: a link to ANOTHER product's docs on
+        # documentation.ubuntu.com is legitimate (intersphinx / related
+        # guides), not a leak of this set's old location.
+        stub_http.mapping = {
+            "example/docs/a/": StubResponse(
+                status_code=200,
+                text='<html><body><a href="https://documentation.ubuntu.com/observability/track-2/tutorial/">obs</a>'
+                '<a href="https://canonical-example-other.readthedocs-hosted.com/page/">other rtd</a></body></html>',
+            ),
+        }
+        result = RtdLeakageCheck().run(Path("."), None, _site_ctx())
+        assert result.passed
+
+    def test_rtd_address_host_spec_fails(self, stub_http, tmp_path):
+        # rtd_address in overwrite_links.js identifies the dedicated old
+        # host — ANY path on it is this set's old location.
+        repo = tmp_path / "repo"
+        docs = repo / "docs"
+        (docs / "_static" / "js").mkdir(parents=True)
+        (docs / "_static" / "js" / "overwrite_links.js").write_text(
+            "const rtd_address = 'canonical-example.readthedocs-hosted.com';\n"
+        )
+        stub_http.mapping = {
+            "example/docs/a/": StubResponse(
+                status_code=200,
+                text='<html><body><a href="https://canonical-example.readthedocs-hosted.com/anything/">old</a></body></html>',
+            ),
+        }
+        result = RtdLeakageCheck().run(repo, docs, _site_ctx())
         assert not result.passed
 
     def test_staging_src_fails(self, stub_http):

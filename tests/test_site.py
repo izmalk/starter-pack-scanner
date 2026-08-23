@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from starter_pack_scanner import site
+from tests.conftest import StubResponse
 
 
 class TestParseLlmsTxt:
@@ -75,3 +76,40 @@ class TestConfValue:
 
     def test_missing_key(self):
         assert site._conf_value("other = 'x'\n", "html_baseurl") is None
+
+
+class TestFetchSitemapUrls:
+    """The migration guide mandates sitemap_filename = 'doc-sitemap.xml', but
+    the production requirements accept either name — sampling must try both."""
+
+    def test_doc_sitemap_only(self, stub_http):
+        stub_http.mapping = {
+            "doc-sitemap.xml": StubResponse(
+                status_code=200,
+                text="<urlset><url><loc>https://example.com/docs/a/</loc></url></urlset>",
+            ),
+        }
+        urls = site.fetch_sitemap_urls("https://example.com/docs/")
+        assert urls == ["https://example.com/docs/a/"]
+
+    def test_sitemap_xml_fallback(self, stub_http):
+        stub_http.mapping = {
+            "sitemap.xml": StubResponse(
+                status_code=200,
+                text="<urlset><url><loc>https://example.com/docs/a/</loc></url></urlset>",
+            ),
+        }
+        urls = site.fetch_sitemap_urls("https://example.com/docs/")
+        assert urls == ["https://example.com/docs/a/"]
+
+    def test_none_available(self, stub_http):
+        urls = site.fetch_sitemap_urls("https://example.com/docs/")
+        assert urls == []
+
+
+class TestIndexFiles:
+    def test_doc_sitemap_is_index_file(self):
+        assert site._is_index_file("https://example.com/docs/doc-sitemap.xml")
+        assert site._is_index_file("https://example.com/docs/sitemap.xml")
+        assert site._is_index_file("https://example.com/docs/404")
+        assert not site._is_index_file("https://example.com/docs/how-to/a/")
