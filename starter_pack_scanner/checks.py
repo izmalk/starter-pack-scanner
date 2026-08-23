@@ -467,30 +467,63 @@ class LlmsTxtLinksCheck(BaseCheck):
         if not site_ctx.pages:
             return _no_pages_result(self, site_ctx)
 
+        # Probe the links exactly as published in llms.txt / sitemap.xml —
+        # NOT the version-rewritten URLs. On versioned docs sites whose
+        # llms.txt lists unversioned links, the published links 404 even
+        # though the rewritten pages resolve; that is a real defect this
+        # check must report.
+        if site_ctx.raw_pages:
+            pairs = list(zip(site_ctx.raw_pages, site_ctx.pages))
+        else:
+            # Manually-built context without raw_pages: probe as-is.
+            pairs = [(u, u) for u in site_ctx.pages]
+
         details: list[str] = []
         broken = 0
-        for url in site_ctx.pages:
-            resp, error = http.get(url)
+        # Broken links whose rewritten (versioned) counterpart resolves —
+        # direct evidence that the published link lacks the version segment.
+        version_evidence = 0
+        for raw, fixed in pairs:
+            resp, error = http.get(raw)
             if resp is not None and resp.status_code < 400:
-                details.append(f"OK ({resp.status_code}): {url}")
-            else:
-                broken += 1
-                status = f"HTTP {resp.status_code}" if resp is not None else error
-                details.append(f"BROKEN ({status}): {url}")
+                details.append(f"OK ({resp.status_code}): {raw}")
+                continue
+            broken += 1
+            status = f"HTTP {resp.status_code}" if resp is not None else error
+            line = f"BROKEN ({status}): {raw}"
+            if fixed != raw:
+                # The link was unversioned on a versioned site. Confirm the
+                # page actually exists at the versioned URL before blaming
+                # the missing version segment — otherwise the page may just
+                # be gone, and the note would misattribute the failure.
+                resp2, _error2 = http.get(fixed)
+                if resp2 is not None and resp2.status_code < 400:
+                    version_evidence += 1
+                    line += f" — but resolves at {fixed} (published link lacks the version segment)"
+            details.append(line)
 
         if broken:
+            # Only claim the version-segment cause when at least one broken
+            # link was proven to exist at its versioned URL.
+            if version_evidence:
+                details.append(
+                    "Note: the docs site is versioned and the sampled llms.txt/sitemap.xml "
+                    "links lack the version segment, so they 404 as published. Build "
+                    "html_baseurl with the version segment (READTHEDOCS_VERSION) so the "
+                    "emitted links include it."
+                )
             return CheckResult(
                 check_id=self.id,
                 check_name=self.name,
                 passed=False,
-                message=f"{broken} of {len(site_ctx.pages)} sampled llms.txt links are broken.",
+                message=f"{broken} of {len(pairs)} sampled llms.txt links are broken.",
                 details=details,
             )
         return CheckResult(
             check_id=self.id,
             check_name=self.name,
             passed=True,
-            message=f"All {len(site_ctx.pages)} sampled llms.txt links resolve.",
+            message=f"All {len(pairs)} sampled llms.txt links resolve.",
             details=details,
         )
 

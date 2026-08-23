@@ -92,6 +92,11 @@ class SiteContext:
     llms_txt_url: str | None = None
     llms_txt_text: str | None = None
     pages: list[str] = field(default_factory=list)
+    # Sampled URLs exactly as published in llms.txt / sitemap.xml (before
+    # any version-segment rewriting). The llms.txt link-integrity check
+    # probes these verbatim: if the site is versioned but its published
+    # links are not, they 404 and must be reported as broken.
+    raw_pages: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -220,13 +225,16 @@ def build_site_context(
         if page_urls:
             ctx.errors.append("llms.txt unavailable or empty; sampled pages from sitemap.xml instead.")
 
-    # Versioned docs sites often list unversioned links in llms.txt /
-    # sitemap.xml; rewrite them against the resolved (versioned) base URL.
-    page_urls = [rewrite_versioned(u, base) for u in page_urls]
-
-    # Raw sampled URLs exactly as they appear in llms.txt / sitemap.xml
+    # Sampled URLs exactly as they appear in llms.txt / sitemap.xml
     # (llms.txt entries are Markdown URLs ending in .md).
-    ctx.pages = sample_pages(page_urls, seed=seed)
+    ctx.raw_pages = sample_pages(page_urls, seed=seed)
+
+    # Versioned docs sites often list unversioned links in llms.txt /
+    # sitemap.xml; rewrite them against the resolved (versioned) base URL
+    # so the page-content checks (metadata, markdown, canonical, …) can
+    # fetch reachable pages. The link-integrity check (llms-txt-links)
+    # uses raw_pages instead — it must detect broken published links.
+    ctx.pages = [rewrite_versioned(u, base) for u in ctx.raw_pages]
     return ctx
 
 

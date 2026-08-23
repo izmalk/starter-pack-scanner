@@ -28,17 +28,18 @@ starter_pack_scanner/
 ├── http.py              # HTTP client with retries (all live-site checks use this)
 ├── batch.py             # Batch scanning from YAML files (load_batch / run_batch)
 ├── cache.py             # On-disk JSON cache (~/.cache/starter-pack-scanner/)
-├── cli.py               # CLI entry point
+├── cli.py               # CLI entry point (supports --json for agents)
 └── web/
     ├── app.py           # FastAPI app (GET /, POST /scan, POST /batch)
     ├── templates/       # Jinja2: index.html, _results.html, _batch_results.html
     └── static/          # style.css (Vanilla Framework vars), theme.js, tabs.js
+.github/skills/docs-scan-fix/  # AI skill: scan → fix → re-scan → report FPs
 tests/                   # Pytest suite — fully offline, no network
 ├── conftest.py          # Fixtures: make_repo(), StubHttp, local_repo, client
 ├── test_regressions.py  # Guards against previously fixed bugs
 └── ...                  # Per-module test files
 batch-scan.yml           # Example batch file (Kafka, OpenSearch, Valkey, Cassandra)
-Makefile                 # install / run / serve-web / test / lint / clean
+Makefile                 # install / run / serve-web / stop / test / lint / clean
 ```
 
 ## Key concepts
@@ -181,7 +182,7 @@ parse `conf.py` (`.value()`, `.fstring()`, `.is_fstring()`,
 | `ImportError: cannot import name 'BaseCheck' ... (circular import)` | A check module imports from `checks.py` at module level. Import from `base.py` instead. |
 | Web form returns 422 instead of friendly error | FastAPI `Form(...)` (required) on an optional field — use `Form(default="")`. |
 | GUI serves stale/wrong check set | Cache key collision — remember to fold `check_group` into `include_checks` for the key (in `cli.py`, `web/app.py`, AND `batch.py`). |
-| Live-site checks report 404 for pages that work in a browser | Versioned docs site: the base redirects to `/docs/4/` but llms.txt/sitemap.xml list unversioned links. `site.rewrite_versioned()` handles this — make sure sampled pages go through it. |
+| Live-site checks report 404 for pages that work in a browser | Versioned docs site: the base redirects to `/docs/4/` but llms.txt/sitemap.xml list unversioned links. `site.rewrite_versioned()` handles this — make sure sampled pages go through it. **Exception**: `llms-txt-links` deliberately probes `raw_pages` (unrewritten) — a versioned site with unversioned published links is a real defect and must fail. |
 | README docs-link check passes on wrong links | The check matches against the product's own docs URL (conf.py/site context); generic `/docs` links only apply as a fallback when the product URL is unknown. |
 | `git clone failed` with no detail | stderr is captured; the last line is shown. Check the URL and network. |
 | Tests fail with `StubHttp` returning wrong response | Substring matching: a base-URL key can shadow specific paths; the closest-to-end match wins — order keys accordingly. |

@@ -53,8 +53,8 @@ class TestVersionedUrlRewriteRegression:
                     "- [Page B](https://canonical.com/data/kafka/docs/tutorial/b/index.html.md)\n"
                 ),
             ),
-            "how-to/a/index.html.md": StubResponse(status_code=200, text="# A\n"),
-            "tutorial/b/index.html.md": StubResponse(status_code=200, text="# B\n"),
+            "/4/how-to/a/index.html.md": StubResponse(status_code=200, text="# A\n"),
+            "/4/tutorial/b/index.html.md": StubResponse(status_code=200, text="# B\n"),
         }
         from starter_pack_scanner.site import build_site_context
 
@@ -63,6 +63,9 @@ class TestVersionedUrlRewriteRegression:
         # Every sampled page must carry the version segment
         for page in ctx.pages:
             assert "/4/" in page, f"page not versioned: {page}"
+        # raw_pages keep the unversioned published form
+        for raw in ctx.raw_pages:
+            assert "/4/" not in raw, f"raw page unexpectedly versioned: {raw}"
 
     def test_unversioned_sitemap_links_rewritten(self, stub_http):
         base = "https://example.com/docs/2/"
@@ -80,9 +83,10 @@ class TestVersionedUrlRewriteRegression:
         assert ctx.pages == ["https://example.com/docs/2/a/"]
 
     def test_scan_site_checks_pass_with_versioned_rewrite(self, local_repo, stub_http):
-        """End-to-end: the site checks that previously failed with 404s
-        (llms-txt-links, page-metadata, page-markdown) must pass when the
-        docs site is versioned with unversioned llms.txt links."""
+        """End-to-end: when the docs site is versioned and llms.txt lists
+        unversioned links, the page-content checks (page-metadata,
+        page-markdown) must still pass via the rewritten URLs — but
+        llms-txt-links must FAIL because the published links 404."""
         base = "https://canonical.com/example/docs/4/"
         stub_http.mapping = {
             "https://canonical.com/example/docs/": StubResponse(status_code=200, url=base),
@@ -93,8 +97,42 @@ class TestVersionedUrlRewriteRegression:
                     "- [A](https://canonical.com/example/docs/a/index.html.md)\n"
                 ),
             ),
-            "a/index.html.md": StubResponse(status_code=200, text="# A\n"),
-            "a/": StubResponse(
+            # Only the VERSIONED URLs resolve; the unversioned published
+            # link 404s (as on the real Kafka docs site).
+            "docs/a/index.html.md": StubResponse(status_code=404),
+            "/4/a/index.html.md": StubResponse(status_code=200, text="# A\n"),
+            "/4/a/": StubResponse(
+                status_code=200,
+                text='<html><head><meta name="description" content="A">'
+                '<link rel="canonical" href="' + base + 'a/"></head>'
+                '<body><div class="cookie"></div></body></html>',
+            ),
+        }
+        report = scan(local_repo, docs_url="https://canonical.com/example/docs/")
+        by_id = {r.check_id: r for r in report.results}
+        # Published (unversioned) links are broken → must be reported.
+        links = by_id["llms-txt-links"]
+        assert not links.passed
+        assert any("version segment" in d for d in links.details)
+        # Page-content checks use the rewritten (versioned) URLs → pass.
+        assert by_id["page-metadata"].passed
+        assert by_id["page-markdown"].passed
+
+    def test_llms_txt_links_pass_when_published_links_versioned(self, local_repo, stub_http):
+        """When llms.txt publishes correctly versioned links, llms-txt-links
+        passes (no false positive from the raw-page probing)."""
+        base = "https://canonical.com/example/docs/4/"
+        stub_http.mapping = {
+            "https://canonical.com/example/docs/": StubResponse(status_code=200, url=base),
+            "llms.txt": StubResponse(
+                status_code=200,
+                text=(
+                    "# docs\n"
+                    "- [A](https://canonical.com/example/docs/4/a/index.html.md)\n"
+                ),
+            ),
+            "/4/a/index.html.md": StubResponse(status_code=200, text="# A\n"),
+            "/4/a/": StubResponse(
                 status_code=200,
                 text='<html><head><meta name="description" content="A">'
                 '<link rel="canonical" href="' + base + 'a/"></head>'
@@ -107,10 +145,60 @@ class TestVersionedUrlRewriteRegression:
         assert by_id["page-metadata"].passed
         assert by_id["page-markdown"].passed
 
+    def test_version_note_not_fired_for_dead_page(self, local_repo, stub_http):
+        """A page deleted from a versioned site: the unversioned link 404s,
+        but its rewritten (versioned) URL 404s too. The check must fail, but
+        must NOT claim the cause is a missing version segment."""
+        base = "https://canonical.com/example/docs/4/"
+        stub_http.mapping = {
+            "https://canonical.com/example/docs/": StubResponse(status_code=200, url=base),
+            "llms.txt": StubResponse(
+                status_code=200,
+                text=(
+                    "# docs\n"
+                    "- [A](https://canonical.com/example/docs/a/index.html.md)\n"
+                ),
+            ),
+            # Both the unversioned AND the versioned URL 404 — page is gone.
+            "docs/a/index.html.md": StubResponse(status_code=404),
+            "/4/a/index.html.md": StubResponse(status_code=404),
+        }
+        report = scan(local_repo, docs_url="https://canonical.com/example/docs/")
+        by_id = {r.check_id: r for r in report.results}
+        links = by_id["llms-txt-links"]
+        assert not links.passed
+        assert not any("version segment" in d for d in links.details)
 
-# ---------------------------------------------------------------------------
-# 2. README docs-link false positives (juju.is/docs, opensearch.org/docs)
-# ---------------------------------------------------------------------------
+    def test_version_note_not_fired_when_unversioned_link_redirects(self, local_repo, stub_http):
+        """A versioned site whose unversioned links redirect to the versioned
+        pages (server-side redirect): the raw link resolves, so the check
+        passes and no version note is emitted."""
+        base = "https://canonical.com/example/docs/4/"
+        stub_http.mapping = {
+            "https://canonical.com/example/docs/": StubResponse(status_code=200, url=base),
+            "llms.txt": StubResponse(
+                status_code=200,
+                text=(
+                    "# docs\n"
+                    "- [A](https://canonical.com/example/docs/a/index.html.md)\n"
+                ),
+            ),
+            # Unversioned link redirects (200) to the versioned page.
+            "docs/a/index.html.md": StubResponse(status_code=200, url=base + "a/index.html.md"),
+            "/4/a/index.html.md": StubResponse(status_code=200, text="# A\n"),
+            "/4/a/": StubResponse(
+                status_code=200,
+                text='<html><head><meta name="description" content="A">'
+                '<link rel="canonical" href="' + base + 'a/"></head>'
+                '<body><div class="cookie"></div></body></html>',
+            ),
+        }
+        report = scan(local_repo, docs_url="https://canonical.com/example/docs/")
+        by_id = {r.check_id: r for r in report.results}
+        links = by_id["llms-txt-links"]
+        # The published link resolves (via redirect) → check passes.
+        assert links.passed
+        assert not any("version segment" in d for d in links.details)
 
 
 class TestReadmeDocsLinkRegression:

@@ -118,6 +118,17 @@ List available checks:
 starter-pack-scanner --list-checks
 ```
 
+Get a machine-readable report (for scripts and AI agents):
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator --json
+```
+
+The JSON schema mirrors the cached report: `repo_url`, `docs_dir`, and a
+`results` array where each entry has `check_id`, `check_name`, `passed`,
+`message`, `details`, and `recommendation`. Exit codes: 0 = all passed,
+1 = failures, 2 = scan error (error details are in the JSON).
+
 Run only specific checks:
 
 ```bash
@@ -341,7 +352,7 @@ redistributed by this project.
 | `readme-docs-link` | Checks whether the repository README contains a link to the product's own documentation (matched against the docs URL from `conf.py`/`--docs-url`; generic `/docs` links to other sites don't count). |
 | `readme-rtd-badge` | Checks whether the repository README contains a Read the Docs badge. |
 | `llms-txt` | Checks that the published documentation serves an `llms.txt` index for AI agents. |
-| `llms-txt-links` | Checks that a sample of links from `llms.txt` resolves to live pages. |
+| `llms-txt-links` | Checks that a sample of links from `llms.txt` resolves to live pages (probed exactly as published — unversioned links on a versioned site are reported as broken). |
 | `llms-full-txt` | Checks that `llms.txt` links to `llms-full.txt` and that the link is not broken. |
 | `page-metadata` | Checks that sampled pages have a non-empty meta description. |
 | `docs-domain` | Checks that the documentation is published on a major company domain (e.g. `canonical.com`, `ubuntu.com`). |
@@ -476,3 +487,13 @@ automatically — no interface changes needed.
 See [`AGENTS.md`](AGENTS.md) for detailed guidance on the repository
 architecture, testing rules (the suite is fully offline), common
 troubleshooting, and conventions.
+
+### AI skill: docs-scan-fix
+
+The [`docs-scan-fix` skill](.github/skills/docs-scan-fix/SKILL.md) teaches
+an agentic AI to scan a documentation repository with this tool, fix every
+failed check using its recommendations, re-scan until clean (or failures
+are confirmed false positives), and file false-positive reports as issues
+on this repository. It lives in `.github/skills/docs-scan-fix/` and is
+discovered automatically by VS Code Copilot; other agents can copy the
+folder into their own skills directory.

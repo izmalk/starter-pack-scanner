@@ -108,6 +108,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List all available checks and exit.",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Output the report as JSON (machine-readable; for scripts and AI agents).",
+    )
     return parser
 
 
@@ -204,16 +210,18 @@ def main(argv: list[str] | None = None) -> None:
         report = cache.get(key)
 
     if report is not None:
-        print(f"Using cached report for {args.repo} (use --no-cache to re-scan)")
+        if not args.json_output:
+            print(f"Using cached report for {args.repo} (use --no-cache to re-scan)")
     else:
-        print(f"Scanning {args.repo} ...")
-        if args.branch:
-            print(f"  Branch: {args.branch}")
-        if args.docs_url:
-            print(f"  Docs URL override: {args.docs_url}")
-        if args.seed is not None:
-            print(f"  Sampling seed: {args.seed}")
-        print()
+        if not args.json_output:
+            print(f"Scanning {args.repo} ...")
+            if args.branch:
+                print(f"  Branch: {args.branch}")
+            if args.docs_url:
+                print(f"  Docs URL override: {args.docs_url}")
+            if args.seed is not None:
+                print(f"  Sampling seed: {args.seed}")
+            print()
 
         report = scan(
             repo_url=args.repo,
@@ -230,8 +238,19 @@ def main(argv: list[str] | None = None) -> None:
         cache.put(key, report)
 
     if report.error:
-        print(_c(f"Error: {report.error}", _RED, _BOLD))
+        if args.json_output:
+            import json
+
+            print(json.dumps(report.to_dict(), indent=2))
+        else:
+            print(_c(f"Error: {report.error}", _RED, _BOLD))
         sys.exit(2)
+
+    if args.json_output:
+        import json
+
+        print(json.dumps(report.to_dict(), indent=2))
+        sys.exit(1 if report.failed > 0 else 0)
 
     # Convert to the system local timezone (no user input or storage needed).
     timestamp = report.scanned_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
