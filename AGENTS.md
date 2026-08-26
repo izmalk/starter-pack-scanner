@@ -26,6 +26,7 @@ starter_pack_scanner/
 ├── scanner.py           # scan(): clone → detect docs dir → run checks → ScanReport
 ├── site.py              # SiteContext: docs URL resolution, llms.txt, page sampling
 ├── http.py              # HTTP client with retries (all live-site checks use this)
+├── rtd.py               # Read the Docs API v3 + GitHub commit-status client (for rtd-webhook)
 ├── batch.py             # Batch scanning from YAML files (load_batch / run_batch)
 ├── cache.py             # On-disk JSON cache (~/.cache/starter-pack-scanner/)
 ├── cli.py               # CLI entry point (supports --json for agents)
@@ -70,10 +71,11 @@ Makefile                 # install / run / serve-web / stop / test / lint / clea
   wraps `run()` and stamps the class `recommendation` onto the result. Tests
   may call `run()` directly (the recommendation is then empty). Never make
   the scanner call `run()` directly or recommendations are lost.
-- **Checks needing constructor args**: `DocsDomainCheck(allow_domains)` and
-  `OldUrlRedirectCheck(old_url)` take an argument. `scanner.py::scan()`
-  special-cases their instantiation by class identity in an if/elif chain —
-  any new check needing a constructor arg must be added there too.
+- **Checks needing constructor args**: `DocsDomainCheck(allow_domains)`,
+  `OldUrlRedirectCheck(old_url)`, and `RtdWebhookCheck(rtd_project)` take an
+  argument. `scanner.py::scan()` special-cases their instantiation by class
+  identity in an if/elif chain — any new check needing a constructor arg must
+  be added there too.
 
 ### Scan flow
 
@@ -89,7 +91,7 @@ driven by it; CLI/API callers ignore it.
 
 - One JSON file per scan configuration in `~/.cache/starter-pack-scanner/`
   (XDG-aware), keyed by SHA-256 of (repo_url, branch, docs_url, include,
-  exclude, offline, seed, old_url). Entries older than one week
+  exclude, offline, seed, old_url, rtd_project). Entries older than one week
   (`cache.MAX_AGE`) are auto-invalidated on read — `cache.get()` deletes the
   stale file and returns a miss. Refresh explicitly (`--no-cache`,
   "Re-scan" button, `refresh=true`). **Every new scan-affecting parameter
@@ -106,6 +108,33 @@ driven by it; CLI/API callers ignore it.
 https-only (http for localhost), no embedded credentials, DNS-resolved
 hostnames must not be private/loopback/link-local. The web server binds
 127.0.0.1 only; there is no auth by design.
+
+### RTD webhook check (`rtd-webhook`)
+
+Verifies the Read the Docs webhook is installed **and** firing, using only
+public unauthenticated endpoints (no dashboard/integrations access):
+
+- **RTD API v3** (`rtd.fetch_builds(slug, commit=<sha>)`) proves the webhook
+  *fired*: a build whose `commit` matches the last docs commit. The API is
+  publicly readable for public projects (anon limit: 5 req/min; set
+  `READTHEDOCS_TOKEN` to lift to 60/min). `rtd.py` tries `.com` (Business)
+  then `.org` (Community).
+- **GitHub commit-status API** (`rtd.rtd_status_from_github`) proves the
+  integration is *installed*: RTD writes a `docs/readthedocs.com:<slug>`
+  status back to the repo. Its presence also reveals the RTD slug.
+
+**Slug discovery** (first hit wins): explicit `--rtd-project` → published
+page `<meta name="readthedocs-project-slug">` → GitHub status context →
+"cannot verify" (never a false FAIL).
+
+**Clone depth**: `scanner.clone_repo()` uses `--depth 50` (not 1) so the
+check can find the commit that last touched `docs/`. This also fixes the
+existing `_derive_old_url()` heuristic in `migration_checks.py`, which
+scans `git log -n 50 -p -- conf.py` and previously only ever saw 1 commit.
+
+The check never produces a false FAIL: when the slug cannot be discovered
+or the APIs are unreachable (401/403/404/429), it passes with a "cannot
+verify" note.
 
 ## Common tasks
 

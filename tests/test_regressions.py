@@ -391,3 +391,18 @@ class TestScanErrorHandlingRegression:
         restored = ScanReport.from_dict(report.to_dict())
         assert restored.error == "something failed"
         assert restored.results == []
+
+
+# ---------------------------------------------------------------------------
+# 8. Clone depth (RtdWebhookCheck + _derive_old_url need git history)
+# ---------------------------------------------------------------------------
+
+
+class TestCloneDepthRegression:
+    """clone_repo() must use --depth 50 (not 1) so that RtdWebhookCheck can
+    find the commit that last touched docs/ and _derive_old_url can scan
+    conf.py history. A revert to depth 1 silently breaks both heuristics."""
+
+    def test_clone_depth_is_50(self):
+        from starter_pack_scanner.scanner import _CLONE_DEPTH
+        assert _CLONE_DEPTH == 50

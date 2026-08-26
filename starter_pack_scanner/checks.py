@@ -5,13 +5,15 @@ from __future__ import annotations
 import abc
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
-from starter_pack_scanner import http, site
+from starter_pack_scanner import http, rtd, site
 from starter_pack_scanner.base import BaseCheck, CheckResult
 from starter_pack_scanner.migration_checks import (
     AnalyticsCheck,
@@ -809,6 +811,321 @@ class PageAgentDirectiveCheck(BaseCheck):
 
 
 # ---------------------------------------------------------------------------
+# RTD webhook check
+# ---------------------------------------------------------------------------
+
+
+def _git_remote(repo_root: Path) -> str | None:
+    """Return the ``origin`` remote URL, or None on any failure."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _last_docs_commit(repo_root: Path, docs_dir: Path | None) -> tuple[str, str] | None:
+    """Return ``(sha, committed_at_iso)`` for the last commit touching docs.
+
+    Falls back to HEAD when the docs dir has no commit within the fetched
+    clone depth. Returns None when git is unavailable or the repo is empty.
+    """
+    pathspec: list[str] = []
+    if docs_dir is not None:
+        try:
+            rel = docs_dir.relative_to(repo_root)
+            pathspec = ["--", str(rel)]
+        except ValueError:
+            pathspec = []
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "log", "-n", "1",
+             "--format=%H%x00%cI", *pathspec],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        # Fallback to HEAD (no pathspec).
+        if pathspec:
+            return _last_docs_commit(repo_root, None)
+        return None
+    parts = result.stdout.strip().split("\x00", 1)
+    if len(parts) != 2 or not parts[0]:
+        return None
+    return parts[0], parts[1]
+
+
+def _parse_iso8601(value: str) -> datetime | None:
+    """Parse an ISO-8601 datetime (RTD/Git format); None on failure."""
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+class RtdWebhookCheck(BaseCheck):
+    """Verify the Read the Docs webhook is installed and firing.
+
+    Uses only public, unauthenticated endpoints:
+
+    - **RTD API v3** (``app.readthedocs.com/api/v3/projects/<slug>/builds/``)
+      proves the webhook *fired*: a build whose ``commit`` matches the last
+      docs commit means the webhook delivered the push event.
+    - **GitHub commit-status API** proves the integration is *installed*:
+      RTD writes a ``docs/readthedocs.com:<slug>`` status back to the repo
+      on every build. Its presence also reveals the RTD slug.
+
+    The check never produces a false FAIL: when the slug cannot be discovered
+    or the APIs are unreachable (401/403/404/429), it passes with a "cannot
+    verify" note.
+    """
+
+    id = "rtd-webhook"
+    name = "RTD Webhook"
+    description = (
+        "Checks that the Read the Docs webhook is installed and that the "
+        "latest docs commit triggered a build."
+    )
+    recommendation = (
+        "Check the RTD project's Integrations page "
+        "(https://app.readthedocs.com/dashboard/<slug>/integrations/) and "
+        "re-add the GitHub incoming webhook or re-sync the connected Git "
+        "account. Pass --rtd-project <slug> if the slug cannot be auto-"
+        "discovered. Set READTHEDOCS_TOKEN to lift the anonymous API rate "
+        "limit (5 req/min)."
+    )
+    requires_site = True
+
+    def __init__(self, rtd_project: str | None = None):
+        self._explicit_slug = rtd_project.strip() if rtd_project else None
+
+    # -- slug discovery --------------------------------------------------
+
+    def _discover_slug(self, repo_root: Path, docs_dir: Path | None,
+                       site_ctx: site.SiteContext | None) -> str | None:
+        """First hit wins: explicit → page <meta> → GitHub status context."""
+        if self._explicit_slug:
+            return self._explicit_slug
+
+        # 1. Published page <meta name="readthedocs-project-slug">.
+        if site_ctx is not None and site_ctx.available:
+            for page_url in site_ctx.pages[:3]:
+                resp, _ = http.get(site.to_page_url(page_url))
+                if resp is None or resp.status_code >= 400:
+                    continue
+                slug = rtd.slug_from_html(resp.text)
+                if slug:
+                    return slug
+
+        # 2. GitHub commit-status context on the docs commit.
+        commit_info = _last_docs_commit(repo_root, docs_dir)
+        if commit_info is not None:
+            sha, _ = commit_info
+            remote = _git_remote(repo_root)
+            if remote:
+                owner_repo = rtd.parse_github_repo(remote)
+                if owner_repo:
+                    status = rtd.rtd_status_from_github(owner_repo, sha)
+                    if status is not None:
+                        context = status.get("context", "")
+                        slug = rtd.slug_from_status_context(context)
+                        if slug:
+                            return slug
+        return None
+
+    # -- main run --------------------------------------------------------
+
+    def run(self, repo_root: Path, docs_dir: Path | None,
+            site_ctx: site.SiteContext | None = None) -> CheckResult:
+        slug = self._discover_slug(repo_root, docs_dir, site_ctx)
+        if slug is None:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=True,
+                message=(
+                    "Cannot verify: the Read the Docs project slug could not "
+                    "be discovered. Pass --rtd-project <slug> to enable this "
+                    "check."
+                ),
+            )
+
+        commit_info = _last_docs_commit(repo_root, docs_dir)
+        if commit_info is None:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=True,
+                message="Cannot verify: no git history available to identify the last docs commit.",
+            )
+        docs_sha, docs_date_raw = commit_info
+        docs_date = _parse_iso8601(docs_date_raw)
+
+        # Corroborating evidence: the GitHub commit status (proves the
+        # integration is installed). Collected once, reused below.
+        gh_status: dict | None = None
+        remote = _git_remote(repo_root)
+        if remote:
+            owner_repo = rtd.parse_github_repo(remote)
+            if owner_repo:
+                gh_status = rtd.rtd_status_from_github(owner_repo, docs_sha)
+
+        details: list[str] = [f"RTD project slug: {slug}",
+                              f"Last docs commit: {docs_sha[:12]}"]
+
+        # Primary evidence: a build for the docs commit.
+        builds = rtd.fetch_builds(slug, commit=docs_sha, limit=5)
+        if builds is not None and builds:
+            build = builds[0]
+            return self._evaluate_build(build, slug, gh_status, details)
+
+        # No build for that exact commit — look at the newest build to see
+        # whether the webhook is live at all.
+        all_builds = rtd.fetch_builds(slug, commit=None, limit=1)
+        if all_builds is None:
+            # RTD API unreachable. Fall back to the GitHub status alone.
+            return self._github_only_result(gh_status, slug, details)
+
+        if not all_builds:
+            # Project exists but has zero builds → webhook never fired.
+            if gh_status is None:
+                return CheckResult(
+                    check_id=self.id,
+                    check_name=self.name,
+                    passed=False,
+                    message=(
+                        f"RTD project '{slug}' has no builds and no GitHub "
+                        f"commit status — the webhook is not installed."
+                    ),
+                    details=details,
+                )
+            # GitHub status present but RTD shows zero builds: trust the
+            # status (the builds list may be paginated/empty for other reasons).
+            return self._github_only_result(gh_status, slug, details)
+
+        newest = all_builds[0]
+        newest_created_raw = newest.get("created", "")
+        newest_created = _parse_iso8601(newest_created_raw)
+
+        if gh_status is not None:
+            self._add_github_detail(gh_status, details)
+
+        # Compare dates: if the newest build is newer than the docs commit,
+        # the webhook is clearly live (the SHA mismatch is likely a
+        # squash-merge/rebase that changed the commit hash).
+        if docs_date and newest_created and newest_created >= docs_date:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=True,
+                message=(
+                    f"Webhook is live: newest build is newer than the docs "
+                    f"commit (no exact build for {docs_sha[:8]} — likely a "
+                    f"squash-merge/rebase)."
+                ),
+                details=details,
+            )
+
+        # Newest build is older than the docs commit → webhook didn't fire.
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=False,
+            message=(
+                f"Webhook did not fire: docs changed at {docs_date_raw}, "
+                f"but the newest build is from {newest_created_raw}."
+            ),
+            details=details,
+        )
+
+    # -- helpers ---------------------------------------------------------
+
+    def _evaluate_build(self, build: dict, slug: str,
+                        gh_status: dict | None, details: list[str]) -> CheckResult:
+        """Decide the result when a build for the docs commit exists."""
+        build_id = build.get("id", "?")
+        success = build.get("success")
+        state = build.get("state", {})
+        state_code = state.get("code", "") if isinstance(state, dict) else str(state)
+        error = build.get("error") or ""
+
+        if gh_status is not None:
+            self._add_github_detail(gh_status, details)
+        details.append(f"Build #{build_id} (state: {state_code})")
+
+        if success is True:
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=True,
+                message=f"Webhook fired: build #{build_id} succeeded.",
+                details=details,
+            )
+        if state_code and state_code != "finished":
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=True,
+                message=f"Webhook fired: build #{build_id} is in progress ({state_code}).",
+                details=details,
+            )
+        # Build exists but failed.
+        msg = f"Webhook fired but build #{build_id} failed."
+        if error:
+            msg += f" Error: {error}"
+        build_url = build.get("urls", {}).get("build") if isinstance(build.get("urls"), dict) else None
+        if build_url:
+            details.append(f"Build details: {build_url}")
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=False,
+            message=msg,
+            details=details,
+        )
+
+    def _github_only_result(self, gh_status: dict | None, slug: str,
+                            details: list[str]) -> CheckResult:
+        """Result when the RTD API is unreachable but GitHub status exists."""
+        if gh_status is not None:
+            self._add_github_detail(gh_status, details)
+            state = gh_status.get("state", "unknown")
+            return CheckResult(
+                check_id=self.id,
+                check_name=self.name,
+                passed=True,
+                message=(
+                    f"Webhook installed (GitHub status: {state}); RTD API "
+                    f"unreachable, could not verify the build."
+                ),
+                details=details,
+            )
+        return CheckResult(
+            check_id=self.id,
+            check_name=self.name,
+            passed=True,
+            message=(
+                f"Cannot verify: RTD API unreachable for '{slug}' and no "
+                f"GitHub commit status found."
+            ),
+            details=details,
+        )
+
+    @staticmethod
+    def _add_github_detail(gh_status: dict, details: list[str]) -> None:
+        """Append a corroboration line from the GitHub status."""
+        state = gh_status.get("state", "?")
+        desc = gh_status.get("description", "")
+        details.append(f"GitHub commit status: {state} — {desc}")
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -840,6 +1157,7 @@ ALL_CHECKS = [
     SitemapIndexCheck,
     UrlShapeCheck,
     RtdLeakageCheck,
+    RtdWebhookCheck,
 ]
 
 

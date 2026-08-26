@@ -13,12 +13,17 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
-from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult, DocsDomainCheck
+from starter_pack_scanner.checks import ALL_CHECKS, BaseCheck, CheckResult, DocsDomainCheck, RtdWebhookCheck
 from starter_pack_scanner.migration_checks import OldUrlRedirectCheck
 from starter_pack_scanner.site import SiteContext, build_site_context
 
 # Hard cap on a single git clone, so a hanging remote cannot wedge a scan.
 _CLONE_TIMEOUT = 120  # seconds
+
+# Clone depth: enough history to find the commit that last touched the docs
+# directory (used by RtdWebhookCheck) and to let _derive_old_url() scan
+# conf.py history. 1 was too shallow — both heuristics only ever saw HEAD.
+_CLONE_DEPTH = 50
 
 # Directories to search for starter-pack indicators, in priority order.
 _CANDIDATE_DIRS = ["docs", "."]
@@ -237,7 +242,7 @@ def _docs_dir_from_rtd_config(repo_root: Path, rtd_path: Path) -> Path | None:
 
 def clone_repo(repo_url: str, dest: Path, branch: str | None = None) -> None:
     """Shallow-clone a repository."""
-    cmd = ["git", "clone", "--depth", "1"]
+    cmd = ["git", "clone", "--depth", str(_CLONE_DEPTH)]
     if branch:
         cmd += ["--branch", branch]
     cmd += ["--", repo_url, str(dest)]
@@ -260,6 +265,7 @@ def scan(
     offline: bool = False,
     check_group: str | None = None,
     old_url: str | None = None,
+    rtd_project: str | None = None,
     progress: ProgressFn | None = None,
 ) -> ScanReport:
     """Clone a repo and run all enabled checks.
@@ -279,6 +285,9 @@ def scan(
         old_url: Pre-migration documentation URL, used by
             migration-old-url-redirect (auto-derived from conf.py git
             history when not given).
+        rtd_project: Read the Docs project slug, used by rtd-webhook
+            (auto-discovered from the published page or the GitHub commit
+            status when not given).
         progress: Optional callback invoked with (percent, step) as the
             scan advances; used by the web GUI progress modal.
 
@@ -351,6 +360,8 @@ def scan(
                 check: BaseCheck = check_cls(allow_domains)
             elif check_cls is OldUrlRedirectCheck:
                 check = check_cls(old_url)
+            elif check_cls is RtdWebhookCheck:
+                check = check_cls(rtd_project)
             else:
                 check = check_cls()
             _report(40 + int(55 * (i - 1) / max(total, 1)), f"Running check {i}/{total}: {check.name}")

@@ -67,6 +67,7 @@ class BatchEntry:
     exclude_checks: set[str] = field(default_factory=set)
     include_checks: set[str] | None = None
     old_url: str | None = None
+    rtd_project: str | None = None
 
     @property
     def short_name(self) -> str:
@@ -94,12 +95,13 @@ class BatchEntry:
             "exclude_checks": sorted(self.exclude_checks),
             "include_checks": sorted(self.include_checks) if self.include_checks else None,
             "old_url": self.old_url,
+            "rtd_project": self.rtd_project,
         }
 
 
 # Keys allowed in an entry (besides "repo").
 _ENTRY_KEYS = {"repo", "branch", "docs_url", "check_group", "offline",
-               "exclude_checks", "include_checks", "old_url"}
+               "exclude_checks", "include_checks", "old_url", "rtd_project"}
 _DEFAULTS_KEYS = _ENTRY_KEYS - {"repo"}
 
 
@@ -208,6 +210,10 @@ def _parse_entry(item: object, index: int, defaults: dict) -> BatchEntry:
     if old_url is not None and not isinstance(old_url, str):
         raise BatchFileError(f"{where}: 'old_url' must be a string.")
 
+    rtd_project = merged.get("rtd_project")
+    if rtd_project is not None and not isinstance(rtd_project, str):
+        raise BatchFileError(f"{where}: 'rtd_project' must be a string.")
+
     return BatchEntry(
         repo=repo,
         branch=branch,
@@ -217,6 +223,7 @@ def _parse_entry(item: object, index: int, defaults: dict) -> BatchEntry:
         exclude_checks=set(exclude),
         include_checks=set(include) if include is not None else None,
         old_url=old_url,
+        rtd_project=rtd_project,
     )
 
 
@@ -260,6 +267,7 @@ def run_batch(
             exclude_checks=entry.exclude_checks,
             offline=entry.offline,
             old_url=entry.old_url,
+            rtd_project=entry.rtd_project,
         )
         report = None
         if use_cache and not refresh:
@@ -274,6 +282,7 @@ def run_batch(
                 check_group=entry.check_group,
                 offline=entry.offline,
                 old_url=entry.old_url,
+                rtd_project=entry.rtd_project,
                 progress=scaled,
             )
             cache.put(key, report)

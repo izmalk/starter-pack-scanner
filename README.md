@@ -185,6 +185,18 @@ starter-pack-scanner https://github.com/canonical/kafka-operator --group migrati
   --old-url https://canonical-example.readthedocs-hosted.com/
 ```
 
+Override the Read the Docs project slug for the `rtd-webhook` check
+(auto-discovered from the published page's `<meta>` tag or the GitHub
+commit status otherwise):
+
+```bash
+starter-pack-scanner https://github.com/canonical/kafka-operator \
+  --rtd-project canonical-kafka-charm
+```
+
+Set `READTHEDOCS_TOKEN` in the environment to lift the RTD API anonymous
+rate limit (5 req/min → 60 req/min) when scanning many repos in batch mode.
+
 ### Batch scanning
 
 Scan multiple repositories from a YAML file (see [`batch-scan.yml`](batch-scan.yml) for a working example):
@@ -204,6 +216,7 @@ defaults:
   offline: false        # skip live-site checks
   exclude_checks: []    # check IDs to skip
   include_checks: []    # only run these check IDs
+  rtd_project: null     # RTD project slug for rtd-webhook (auto-discovered if unset)
 
 repos:
   # Plain URL shorthand:
@@ -360,6 +373,7 @@ redistributed by this project.
 | `docs-domain` | Checks that the documentation is published on a major company domain (e.g. `canonical.com`, `ubuntu.com`). |
 | `page-markdown` | Checks that sampled pages serve a Markdown version for AI (page URL + `index.html.md`). |
 | `page-agent-directive` | Checks that sampled pages contain a visually-hidden AI discovery directive (`llms.txt` pointer). |
+| `rtd-webhook` | Checks that the Read the Docs webhook is installed and that the latest docs commit triggered a build (via the public RTD API v3 and the GitHub commit-status API). |
 
 ### URL-migration validation group
 
@@ -408,7 +422,8 @@ to override URL detection.
 
 ## How it works
 
-1. The scanner shallow-clones the target repository to a temporary directory.
+1. The scanner clones the target repository to a temporary directory (`--depth 50`,
+   enough history to find the commit that last touched `docs/`).
 2. It detects the documentation root using multiple signals, in priority order:
    - A `.sphinx/` directory in `docs/` or the repo root (strongest signal).
    - A `.sphinx/` directory in any top-level subdirectory.

@@ -94,6 +94,14 @@ def _build_parser() -> argparse.ArgumentParser:
              "(auto-derived from conf.py git history otherwise).",
     )
     parser.add_argument(
+        "--rtd-project",
+        default=None,
+        metavar="SLUG",
+        help="Read the Docs project slug (e.g. 'canonical-kafka-charm'), for "
+             "rtd-webhook (auto-discovered from the published page or the "
+             "GitHub commit status otherwise).",
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Bypass the scan cache and always run a fresh scan.",
@@ -187,6 +195,7 @@ def main(argv: list[str] | None = None) -> None:
         offline=args.offline,
         seed=args.seed,
         old_url=args.old_url,
+        rtd_project=args.rtd_project,
     )
     # Note: check_group affects which checks run; fold it into the key via
     # the include set when a group is selected.
@@ -203,6 +212,7 @@ def main(argv: list[str] | None = None) -> None:
             offline=args.offline,
             seed=args.seed,
             old_url=args.old_url,
+            rtd_project=args.rtd_project,
         )
 
     report = None
@@ -234,6 +244,7 @@ def main(argv: list[str] | None = None) -> None:
             offline=args.offline,
             check_group=args.group,
             old_url=args.old_url,
+            rtd_project=args.rtd_project,
         )
         cache.put(key, report)
 

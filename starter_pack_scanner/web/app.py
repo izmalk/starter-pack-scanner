@@ -124,6 +124,7 @@ def run_scan(
     branch: str = Form(default=""),
     refresh: str = Form(default=""),
     check_group: str = Form(default=""),
+    rtd_project: str = Form(default=""),
 ) -> HTMLResponse:
     """Run a scan (or serve a cached report) and return the results partial.
 
@@ -134,6 +135,7 @@ def run_scan(
     docs_url = docs_url.strip() or None
     branch = branch.strip() or None
     check_group = check_group.strip() or None
+    rtd_project = rtd_project.strip() or None
     force_refresh = refresh.strip().lower() in {"1", "true", "on"}
 
     def render(error: str | None = None, **context) -> HTMLResponse:
@@ -164,7 +166,8 @@ def run_scan(
         include_ids = {c().id for c in checks_by_group(check_group)}
 
     key = cache.cache_key(
-        repo_url=repo_url, branch=branch, docs_url=docs_url, include_checks=include_ids
+        repo_url=repo_url, branch=branch, docs_url=docs_url,
+        include_checks=include_ids, rtd_project=rtd_project,
     )
 
     if not force_refresh:
@@ -180,6 +183,7 @@ def run_scan(
                 branch=branch,
                 docs_url=docs_url,
                 check_group=check_group,
+                rtd_project=rtd_project,
                 progress=lambda pct, step: _job_update(job_id, pct, step),
             )
             cache.put(key, report)
@@ -197,7 +201,10 @@ def run_scan(
     if not _is_htmx(request):
         # Synchronous path (tests, curl): run inline and return the report.
         with _SCAN_SLOTS:
-            report = scan(repo_url=repo_url, branch=branch, docs_url=docs_url, check_group=check_group)
+            report = scan(
+                repo_url=repo_url, branch=branch, docs_url=docs_url,
+                check_group=check_group, rtd_project=rtd_project,
+            )
             cache.put(key, report)
         return render(report=report, cached=False)
 
@@ -236,6 +243,8 @@ def _single_entry_yaml(entry: BatchEntry) -> str:
         mapping["exclude_checks"] = sorted(entry.exclude_checks)
     if entry.include_checks:
         mapping["include_checks"] = sorted(entry.include_checks)
+    if entry.rtd_project:
+        mapping["rtd_project"] = entry.rtd_project
     return yaml.safe_dump({"repos": [mapping]}, sort_keys=False)
 
 

@@ -101,7 +101,7 @@ class StubHttp:
         self.mapping = mapping or {}
         self.requests: list[str] = []
 
-    def get(self, url: str, *, allow_redirects: bool = True):
+    def get(self, url: str, *, allow_redirects: bool = True, headers: dict | None = None):
         self.requests.append(url)
         matches = [(url.rfind(key), key) for key in self.mapping if key in url]
         if matches:
@@ -127,6 +127,11 @@ def stub_http(monkeypatch):
 
     monkeypatch.setattr(checks_mod.http, "get", stub.get, raising=False)
     monkeypatch.setattr(site_mod.http, "get", stub.get, raising=False)
+
+    # rtd.py also calls http.get via its own import.
+    import starter_pack_scanner.rtd as rtd_mod
+
+    monkeypatch.setattr(rtd_mod.http, "get", stub.get, raising=False)
     return stub
 
 
