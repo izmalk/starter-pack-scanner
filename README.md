@@ -1,5 +1,7 @@
 # Starter Pack Scanner
 
+![The scanner's retro progress modal mid-scan](starter_pack_scanner/pics/progress-bar.png)
+
 A CLI tool (with a local web GUI) to scan Git repositories that use [Canonical's Sphinx Stack](https://github.com/canonical/sphinx-stack) (ex. Starter Pack) and run a modular set of checks against them — including a dedicated **URL-migration validation** group for documentation migrated from Read the Docs hosting to Canonical domains.
 
 ## Architecture
@@ -71,40 +73,103 @@ sequenceDiagram
 
 ## Installation
 
-The default install includes everything — the CLI **and** the web GUI:
+The recommended way is the provided `Makefile`, which creates a local
+virtual environment in `.venv/` and installs the package into it:
 
 ```bash
 cd starter-pack-scanner
-pip install -e .
+make install      # create .venv and install everything (CLI + web GUI)
 ```
 
 For a minimal, CLI-only install (e.g. in CI, where the web GUI dependencies
-are unnecessary weight), use the `cli` extra:
+are unnecessary weight):
 
 ```bash
-pip install -e ".[cli]"
-```
-
-A `Makefile` is provided for common tasks (`make help` lists them all):
-
-```bash
-make install      # create .venv and install everything (CLI + web GUI)
 make install-cli  # create .venv and install only the CLI dependencies
-make run REPO=https://github.com/canonical/kafka-operator  # run the scanner
-make serve-web    # start the web GUI at http://127.0.0.1:8765
-make stop         # stop the web GUI if it's running in the background (alias: web-stop)
-make test         # run the test suite (offline, no network needed)
-make lint         # compile-check all sources
-make clean        # remove build artifacts (keeps .venv)
 ```
+
+Alternatively, install manually with pip (into the current environment):
+
+```bash
+pip install -e .          # CLI + web GUI
+pip install -e ".[cli]"   # CLI only
+```
+
+### Make targets
+
+`make help` lists all targets. Aliases run the same command under several
+names:
+
+| Target | Aliases | Description |
+|--------|---------|-------------|
+| `install` | `install-web` | Create `.venv` and install the package (CLI + web GUI). |
+| `install-cli` | — | Create `.venv` and install only the CLI dependencies. |
+| `run` | — | Run the CLI scanner (pass `REPO=...`, e.g. `make run REPO=https://github.com/canonical/kafka-operator`). |
+| `serve-web` | `server-web`, `web` | Start the web GUI at <http://127.0.0.1:8765>. |
+| `stop` | `web-stop` | Stop the web GUI if it's running in the background (port 8765). |
+| `test` | — | Run the test suite (offline, no network needed). |
+| `lint` | — | Compile-check all Python sources. |
+| `clean` | — | Remove build artifacts (keeps `.venv`). |
 
 ## Usage
+
+The `starter-pack-scanner` and `starter-pack-scanner-web` commands are
+installed into the `.venv/` created by `make install` — they are **not** on
+your system `PATH` until you activate that environment:
+
+```bash
+source .venv/bin/activate
+```
+
+(Alternatively, call the binaries directly without activating:
+`.venv/bin/starter-pack-scanner ...`, or skip the CLI entirely with
+`make run REPO=...`.)
 
 Scan a repository:
 
 ```bash
 starter-pack-scanner https://github.com/canonical/kafka-operator
 ```
+
+<details>
+<summary><b>Example console output</b> (click to expand)</summary>
+
+```text
+Scanning https://github.com/canonical/kafka-operator ...
+
+Report generated at 2026-09-04 12:00:00 UTC
+
+[PASS] Docs Directory: Documentation is in the standard docs/ directory.
+[PASS] Starter Pack Version: Starter pack is up to date (version 2.1.0).
+[PASS] README Docs Link: Found 2 link(s) to the product documentation in README.md.
+       https://canonical.com/data/kafka/docs/4/
+       https://canonical.com/data/kafka/docs/4/how-to/index.html
+[PASS] README RTD Badge: Found a Read the Docs badge in README.md.
+[PASS] llms.txt Available: llms.txt is available and lists 42 link(s).
+       https://canonical.com/data/kafka/docs/4/llms.txt
+[PASS] llms.txt Links: All 5 sampled links from llms.txt resolve (200 OK).
+[PASS] llms-full.txt Link: llms.txt links to llms-full.txt and the link resolves.
+[PASS] Page Metadata: All 3 sampled pages have a non-empty meta description.
+[PASS] Major Documentation Domain: Documentation is published on canonical.com.
+[PASS] Markdown for AI: All 3 sampled pages serve a Markdown version.
+[PASS] Hidden AI Directive: All 3 sampled pages contain the hidden AI directive.
+[PASS] RTD Webhook: The Read the Docs webhook is installed and the latest docs commit triggered a build.
+
+==================================================
+Results: 12 passed, 0 failed, 12 total
+```
+
+A failing check prints a `Fix:` line with actionable guidance (hidden by
+`--no-recommendations`):
+
+```text
+[FAIL] Starter Pack Version: Starter pack version 1.9.2 is outdated (latest: 2.1.0).
+       Fix: Update the Sphinx Stack: run `make update` from the `docs/` directory (or
+       `python _dev/update_sp.py`), then commit the refreshed `_dev/` files. See
+       https://github.com/canonical/sphinx-stack for the changelog.
+```
+
+</details>
 
 Scan a specific branch or tag:
 
@@ -216,6 +281,7 @@ defaults:
   offline: false        # skip live-site checks
   exclude_checks: []    # check IDs to skip
   include_checks: []    # only run these check IDs
+  old_url: null         # pre-migration URL for migration-old-url-redirect
   rtd_project: null     # RTD project slug for rtd-webhook (auto-discovered if unset)
 
 repos:
@@ -265,11 +331,31 @@ step (e.g. "Cloning…", "Running check 12/26: Migration: Slug"). Scans run
 in a background thread; the modal polls a `/progress/{job_id}` endpoint
 every 400ms and closes automatically when the report is ready.
 
+<details>
+<summary><b>Screenshots</b> (click to expand)</summary>
+
+**Main screen** — single-repo scan form with the rendered report below:
+
+![Web GUI main screen](starter_pack_scanner/pics/main-screen.png)
+
+**Batch scan tab** — paste batch YAML and scan many repositories at once:
+
+![Web GUI batch scan tab](starter_pack_scanner/pics/batch-scan.png)
+
+**Batch results** — per-repository summaries with pass/fail counts:
+
+![Web GUI batch results](starter_pack_scanner/pics/batch-scan-results.png)
+
+</details>
+
 ### Start and stop
 
 ```bash
-# Install (the default install already includes the web GUI):
-pip install -e .
+# Install (creates .venv and installs the package, CLI + web GUI):
+make install
+
+# Activate the virtual environment (puts starter-pack-scanner-web on PATH):
+source .venv/bin/activate
 
 # Start (binds to 127.0.0.1:8765 — local only):
 starter-pack-scanner-web
@@ -277,7 +363,8 @@ starter-pack-scanner-web
 # Stop: press Ctrl+C in the terminal running it.
 ```
 
-Or with make: `make serve-web`.
+Or with make: `make serve-web` (no activation needed). To stop a server
+started in the background: `make stop`.
 
 Then open <http://127.0.0.1:8765>. Alternatively run
 `python -m starter_pack_scanner.web.app`.
@@ -338,10 +425,12 @@ concerns:
   `check_group`, FastAPI 422s on empty form fields, and more.
 
 ```bash
-make test          # or: python -m pytest tests/ -v
+make test          # or: .venv/bin/python -m pytest tests/ -v
 ```
 
-Requires `pytest` and `httpx` (`pip install pytest httpx`).
+`make test` installs `pytest` and `httpx` into `.venv` automatically; for
+manual runs, install them first
+(`.venv/bin/python -m pip install pytest httpx`).
 
 ## Third-party assets and licenses
 
@@ -414,7 +503,7 @@ the public guide requires Canonical SSO).
 visual styling/image rendering, RTD dashboard settings, the Google Analytics
 migration annotation, and the migration tracker spreadsheet.
 
-The last seven checks are live-site checks: they resolve the published docs URL
+The last ten checks are live-site checks: they resolve the published docs URL
 from `conf.py` (`html_baseurl`, following redirects to the final URL), fetch
 `llms.txt`, and sample 3 pages (from `llms.txt`, falling back to `sitemap.xml`)
 shared by all checks. Use `--seed` for reproducible sampling and `--docs-url`
