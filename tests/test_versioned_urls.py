@@ -118,3 +118,36 @@ class TestRewriteVersionedNonNumeric:
         base = "https://canonical.com/lxd/docs/default/"
         url = "https://canonical.com/lxd/docs/default/how-to/cluster/"
         assert rewrite_versioned(url, base) == url
+
+
+class TestRewriteVersionedDifferentVersionName:
+    """Regression: alias-versioned base (e.g. '4') whose sitemap lists links
+    under the full version name (e.g. '4.4') must not get the base segment
+    inserted (which would double it: /4/4.4/…)."""
+
+    def test_full_version_link_unchanged(self):
+        # charmcraft shape: base …/charmcraft/4/, sitemap lists …/4.4/page/
+        base = "https://canonical.com/juju/docs/charmcraft/4/"
+        url = "https://canonical.com/juju/docs/charmcraft/4.4/reference/commands/logout/"
+        assert rewrite_versioned(url, base) == url
+
+    def test_full_version_link_unchanged_non_numeric(self):
+        base = "https://canonical.com/lxd/docs/default/"
+        url = "https://canonical.com/lxd/docs/latest/how-to/cluster/"
+        assert rewrite_versioned(url, base) == url
+
+    def test_unversioned_link_still_rewritten(self):
+        # Unversioned links must still get the base's version segment.
+        base = "https://canonical.com/juju/docs/charmcraft/4/"
+        url = "https://canonical.com/juju/docs/charmcraft/reference/commands/logout/"
+        assert rewrite_versioned(url, base) == (
+            "https://canonical.com/juju/docs/charmcraft/4/reference/commands/logout/"
+        )
+
+    def test_version_like_page_segment_still_rewritten(self):
+        # A page path that merely *starts* with a version-like word but has a
+        # longer segment (e.g. '404' is version-like, but a real page segment
+        # like 'release-notes' is not) must still be rewritten.
+        base = "https://example.com/docs/4/"
+        url = "https://example.com/docs/release-notes/charmcraft-4.0/"
+        assert rewrite_versioned(url, base) == "https://example.com/docs/4/release-notes/charmcraft-4.0/"

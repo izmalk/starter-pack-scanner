@@ -102,11 +102,22 @@ def rewrite_versioned(url: str, base_url: str) -> str:
     (``…/docs/4/page/``) while their llms.txt / sitemap.xml list unversioned
     links (``…/docs/page/``) that return 404. Rewriting them against the
     resolved (versioned) base URL makes the sampled pages reachable.
+
+    Links that already carry their own version segment after the docs root
+    are left untouched: alias-versioned sites (base ``…/4/``) may list
+    links under the full version name (``…/4.4/page/``), and inserting the
+    base's segment would double it (``…/4/4.4/page/``).
     """
     prefix = _unversioned_prefix(base_url)
-    if prefix and url.startswith(prefix) and not url.startswith(base_url):
-        return base_url + url[len(prefix):]
-    return url
+    if not (prefix and url.startswith(prefix) and not url.startswith(base_url)):
+        return url
+    rest = url[len(prefix):]
+    first = rest.split("/", 1)[0]
+    if _is_version_segment(first):
+        # Already versioned (possibly under a different version name than
+        # the base, e.g. base alias '4' vs full version '4.4').
+        return url
+    return base_url + rest
 
 
 def _is_index_file(url: str) -> bool:
